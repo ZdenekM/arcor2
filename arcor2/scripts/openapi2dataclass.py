@@ -11,6 +11,7 @@ import dataclasses_jsonschema
 from dataclasses_jsonschema import JsonSchemaMixin
 
 from arcor2.source import utils as source_utils
+from arcor2 import helpers
 
 def dataclass_def(name: str, parent=None) -> ast.ClassDef:
 
@@ -86,7 +87,8 @@ def main():
         # TODO array/list, obj. reference
         for prop, prop_value in value["properties"].items():
             try:
-                add_member(cls, prop, TYPE_MAPPING[prop_value["type"]].__name__, prop_value.get("description", ""))
+                add_member(cls, helpers.camel_case_to_snake_case(prop),
+                           TYPE_MAPPING[prop_value["type"]].__name__, prop_value.get("description", ""))
             except KeyError as e:
                 print((e, prop, prop_value))
 
