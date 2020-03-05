@@ -3,14 +3,17 @@
 
 import json
 import typed_ast.ast3 as ast
-from typing import List
+from typing import List, Optional, Dict, Set
 import inspect
 from enum import Enum
+import typing
 
+import requests
 import dataclasses
 from dataclasses import dataclass, field
 import dataclasses_jsonschema
 from dataclasses_jsonschema import JsonSchemaMixin
+from openapi_spec_validator import validate_spec  # type: ignore
 
 from arcor2.source import utils as source_utils
 from arcor2 import helpers
@@ -20,16 +23,29 @@ import arcor2.data.common
 import arcor2.data.object_type
 import arcor2.data.robot
 import arcor2.data.services
+import arcor2.services.service
+import arcor2.services.robot_service
+import arcor2.action
+
+from arcor2.services.service import Service
+from arcor2.services.robot_service import RobotService
+from arcor2.data.common import ActionMetadata
+from arcor2.action import action
+from arcor2 import rest
 
 ARCOR2_DATA_CLASSES = {}
+LIST_STR = str(List).split(".")[-1]
+COMMON = "common"
 
+def dataclass_def(name: str, description: Optional[str] = None, parent=None) -> ast.ClassDef:
+    pass
 
-def dataclass_def(name: str, parent=None) -> ast.ClassDef:
+def dataclass_def(name: str, description: Optional[str] = None, parent=None) -> ast.ClassDef:
 
     if parent is None:
         parent = JsonSchemaMixin.__name__
 
-    return ast.ClassDef(
+    cls = ast.ClassDef(
             name=name,
             bases=[ast.Name(
                 id=parent,
@@ -39,6 +55,13 @@ def dataclass_def(name: str, parent=None) -> ast.ClassDef:
             decorator_list=[ast.Name(
                 id=dataclass.__name__,
                 ctx=ast.Load())])
+
+    if description:
+        cls.body.append(ast.Expr(value=ast.Str(
+            s=f'{description}',  # TODO how to make multiline docstring?
+            kind='')))
+
+    return cls
 
 
 def enum_class_def(name: str, values: List[str]) -> ast.ClassDef:
@@ -67,6 +90,47 @@ def enum_class_def(name: str, values: List[str]) -> ast.ClassDef:
               simple=1))
 
     return cls
+
+
+def get_field(description: str) -> ast.Call:
+
+    return ast.Call(
+        func=ast.Name(
+            id='field',
+            ctx=ast.Load()),
+        args=[],
+        keywords=[ast.keyword(
+            arg='metadata',
+            value=ast.Call(
+                func=ast.Name(
+                    id='dict',
+                    ctx=ast.Load()),
+                args=[],
+                keywords=[ast.keyword(
+                    arg='description',
+                    value=ast.Str(
+                        s=description,
+                        kind=''))]))])
+
+
+def add_list_member(cls: ast.ClassDef, name: str, description: str, item_type: str) -> None:
+
+    cls.body.append(
+        ast.AnnAssign(
+            target=ast.Name(
+                id=name,
+                ctx=ast.Store()),
+            annotation=ast.Subscript(
+                value=ast.Name(
+                    id='List',
+                    ctx=ast.Load()),
+                slice=ast.Index(value=ast.Name(
+                    id=item_type,
+                    ctx=ast.Load())),
+                ctx=ast.Load()),
+            value=get_field(description),
+            simple=1)
+    )
 
 
 def add_member(cls: ast.ClassDef, name: str, value_type: str, description: str) -> None:
@@ -108,41 +172,60 @@ class SkipException(Exception):
     pass
 
 
-def cls_def(schemas, done, mm, name: str) -> None:
+def cls_def(api_name: str, modules, api_spec, done: Set[str], common_models: Set[str], model_name: str) -> None:
 
-    if name in done:
+    if model_name in done:
         return
 
     # add just import for known types (Pose, etc.)
-    if name in ARCOR2_DATA_CLASSES:
+    if model_name in ARCOR2_DATA_CLASSES:
         # TODO check if arcor2 version has all properties as the openapi version (arcor2 one may have more properties)
-        done.add(name)
-        print(name)
-        module, cls_def = ARCOR2_DATA_CLASSES[name]
-        source_utils.add_import(mm, module.__name__, cls_def.__name__)
+        done.add(model_name)
+        module, cls_def = ARCOR2_DATA_CLASSES[model_name]
+        source_utils.add_import(modules[api_name], module.__name__, cls_def.__name__)
         return
 
-    value = schemas[name]
+    if model_name in common_models:
+        mod = modules[COMMON]
+        source_utils.add_import(modules[api_name], COMMON, model_name, try_to_import=False)
+    else:
+        mod = modules[api_name]
+
+    value = api_spec[api_name]["components"]["schemas"][model_name]
+
+    if "$ref" in value:
+
+        # TODO cache/save it to dict
+        ref_api = requests.get(value["$ref"]).json()
+        # TODO process definition
+        return
 
     if value["type"] == "string" and "enum" in value:
-        source_utils.add_import(mm, arcor2.data.common.__name__, StrEnum.__name__)
-        cls = enum_class_def(name, value["enum"])
-        mm.body.append(cls)
-        done.add(name)
+        source_utils.add_import(mod, arcor2.data.common.__name__, StrEnum.__name__)
+        cls = enum_class_def(model_name, value["enum"])
+        mod.body.append(cls)
+        done.add(model_name)
         return
 
     if value["type"] != "object":
         raise SkipException
 
-    cls = dataclass_def(name)
+    cls = dataclass_def(model_name, value.get("description", None))
 
-    # TODO array/list
     for prop, prop_value in value["properties"].items():
 
         if "type" in prop_value:
 
-            # TODO handle array
-            if prop_value["type"] in {"array", "object"}:
+            if prop_value["type"] == "object":
+                # TODO print warning
+                continue
+
+            if prop_value["type"] == "array":
+
+                source_utils.add_import(mod, typing.__name__, LIST_STR)
+
+                add_list_member(cls, helpers.camel_case_to_snake_case(prop), prop_value.get("description", ""),
+                                prop_value["items"]["$ref"].split("/")[-1])
                 continue
 
             # primitive types
@@ -156,7 +239,7 @@ def cls_def(schemas, done, mm, name: str) -> None:
             ref_name = prop_value["allOf"][0]["$ref"].split("/")[-1]
 
             if ref_name not in done:
-                cls_def(schemas, done, mm, ref_name)
+                cls_def(api_name, modules, api_spec, done, common_models, model_name)
 
             assert ref_name in done
 
@@ -166,14 +249,41 @@ def cls_def(schemas, done, mm, name: str) -> None:
         else:
             print(f"special case: {prop_value}")
 
-    mm.body.append(cls)
-    done.add(name)
+    mod.body.append(cls)
+    done.add(model_name)
+
+
+def empty_data_module() -> ast.Module:
+
+    mm = ast.Module(body=[])
+    source_utils.add_import(mm, dataclasses_jsonschema.__name__, JsonSchemaMixin.__name__)
+    source_utils.add_import(mm, dataclasses.__name__, dataclass.__name__)
+    source_utils.add_import(mm, dataclasses.__name__, field.__name__)
+    return mm
+
+def empty_srv_module(robot: bool = False) -> ast.Module:
+
+    mm = ast.Module(body=[])
+    if robot:
+        source_utils.add_import(mm, arcor2.services.robot_service.__name__, RobotService.__name__)
+    else:
+        source_utils.add_import(mm, arcor2.services.service.__name__, Service.__name__)
+
+    source_utils.add_import(mm, arcor2.data.common.__name__, ActionMetadata.__name__)
+    source_utils.add_import(mm, arcor2.action.__name__, action.__name__)
+    source_utils.add_import(mm, arcor2.__name__, rest.__name__, try_to_import=False)  # TODO fix it!
+
+    # TODO import os
+
+    return mm
 
 
 def main():
 
-    with open("project-swagger.json", "r") as api_file:
-        api = json.loads(api_file.read())
+    # TODO support multiple services
+    # TODO put common definitions into data/common.py
+    data_modules: Dict[str, ast.Module] = {}
+    api_spec: Dict[str, Dict] = {}
 
     for module in (arcor2.data.common, arcor2.data.object_type, arcor2.data.robot, arcor2.data.services):
 
@@ -183,24 +293,64 @@ def main():
 
             ARCOR2_DATA_CLASSES[name] = module, obj
 
-    mm = ast.Module(body=[])
-    source_utils.add_import(mm, dataclasses_jsonschema.__name__, JsonSchemaMixin.__name__)
-    source_utils.add_import(mm, dataclasses.__name__, dataclass.__name__)
-    source_utils.add_import(mm, dataclasses.__name__, field.__name__)
-
     done = set()
 
-    schemas = api["components"]["schemas"]
+    for api_file_name in ("robot-swagger.json", "search-swagger.json"):
 
-    for name in schemas.keys():
+        with open(api_file_name, "r") as api_file:
+            api = json.loads(api_file.read())
 
-        try:
-            cls_def(schemas, done, mm, name)
-        except SkipException:
-            print(f"Skipping {name}")
-            continue
+        validate_spec(api)
+        name = api_file_name.split("-")[0]
+        data_modules[name] = empty_data_module()
+        api_spec[name] = api
 
-    print(source_utils.tree_to_str(mm))
+    model_name_cnt: Dict[str, int] = {}
+    for api_name, module in data_modules.items():
+        schemas = api_spec[api_name]["components"]["schemas"]
+
+        for model_name in schemas.keys():
+
+            if model_name in ARCOR2_DATA_CLASSES:
+                continue
+
+            if model_name not in model_name_cnt:
+                model_name_cnt[model_name] = 1
+            else:
+                model_name_cnt[model_name] += 1
+
+    common_models: Set[str] = {k for k, v in model_name_cnt.items() if v > 1}
+    print(common_models)
+
+    data_modules[COMMON] = empty_data_module()  # default module for shared dataclasses
+
+    for api_name, api in api_spec.items():
+
+        schemas = api["components"]["schemas"]
+        for model_name in schemas.keys():
+
+            try:
+                cls_def(api_name, data_modules, api_spec, done, common_models, model_name)
+            except SkipException:
+                print(f"Skipping {name}")
+                continue
+
+    for api_name, module in data_modules.items():
+        print(api_name)
+        print(source_utils.tree_to_str(module))
+
+    srv_modules: Dict[str, ast.Module] = {}
+
+    for api_name, api in api_spec.items():
+
+        srv_modules[api_name] = empty_srv_module(api_name == "robot")
+
+        for path in api["paths"]:
+            pass
+
+        print(api_name)
+        print(source_utils.tree_to_str(srv_modules[api_name]))
+
 
 
 if __name__ == '__main__':

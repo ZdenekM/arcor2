@@ -44,13 +44,13 @@ setup(
         'flask_swagger_ui',
         'websocket-client',
         'pyyaml',  # dependency of apispec, for some reason not installed automatically...
-        'Pillow'
+        'Pillow',
+        'openapi-spec-validator'
     ],
     extras_require={
         'test': [
             'pytest',
             'pytest-docker-compose',
-            'openapi-spec-validator'
             ],
         'docs': ['sphinx']
     },
