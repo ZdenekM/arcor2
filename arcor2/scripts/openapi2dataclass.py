@@ -7,6 +7,8 @@ from typing import List, Optional, Dict, Set
 import inspect
 from enum import Enum
 import typing
+import tempfile
+import os
 
 import requests
 import dataclasses
@@ -33,12 +35,126 @@ from arcor2.data.common import ActionMetadata
 from arcor2.action import action
 from arcor2 import rest
 
+"""
+TODO
+move functions to source/dataclasses
+
+"""
+
 ARCOR2_DATA_CLASSES = {}
 LIST_STR = str(List).split(".")[-1]
 COMMON = "common"
 
-def dataclass_def(name: str, description: Optional[str] = None, parent=None) -> ast.ClassDef:
-    pass
+
+def srv_def(name: str, description: Optional[str] = None, parent: Optional[str] = None) -> ast.ClassDef:
+
+    if parent is None:
+        parent = Service.__name__
+
+    srv_name = f"{name.title()}{Service.__name__}"
+
+    return ast.ClassDef(
+            name=srv_name,
+            bases=[ast.Name(
+                id=parent,
+                ctx=ast.Load())],
+            keywords=[],
+            body=[
+                ast.Expr(value=ast.Str(
+                    s=description,
+                    kind='')),
+                ast.FunctionDef(
+                    name='__init__',
+                    args=ast.arguments(
+                        args=[
+                            ast.arg(
+                                arg='self',
+                                annotation=None,
+                                type_comment=None),
+                            ast.arg(
+                                arg='configuration_id',
+                                annotation=ast.Name(
+                                    id='str',
+                                    ctx=ast.Load()),
+                                type_comment=None)],
+                        vararg=None,
+                        kwonlyargs=[],
+                        kw_defaults=[],
+                        kwarg=None,
+                        defaults=[]),
+                    body=[
+                        ast.Expr(value=ast.Call(
+                            func=ast.Attribute(
+                                value=ast.Call(
+                                    func=ast.Name(
+                                        id='super',
+                                        ctx=ast.Load()),
+                                    args=[
+                                        ast.Name(
+                                            id=srv_name,
+                                            ctx=ast.Load()),
+                                        ast.Name(
+                                            id='self',
+                                            ctx=ast.Load())],
+                                    keywords=[]),
+                                attr='__init__',
+                                ctx=ast.Load()),
+                            args=[ast.Name(
+                                id='configuration_id',
+                                ctx=ast.Load())],
+                            keywords=[])),
+                        ast.Expr(value=ast.Call(
+                            func=ast.Attribute(
+                                value=ast.Name(
+                                    id='systems',
+                                    ctx=ast.Load()),
+                                attr='create',
+                                ctx=ast.Load()),
+                            args=[
+                                ast.Name(
+                                    id='URL',
+                                    ctx=ast.Load()),
+                                ast.Name(
+                                    id='self',
+                                    ctx=ast.Load())],
+                            keywords=[]))],
+                    decorator_list=[],
+                    returns=None,
+                    type_comment=None),
+                ast.FunctionDef(
+                    name='get_configuration_ids',
+                    args=ast.arguments(
+                        args=[],
+                        vararg=None,
+                        kwonlyargs=[],
+                        kw_defaults=[],
+                        kwarg=None,
+                        defaults=[]),
+                    body=[ast.Return(value=ast.Call(
+                        func=ast.Attribute(
+                            value=ast.Name(
+                                id='systems',
+                                ctx=ast.Load()),
+                            attr='systems',
+                            ctx=ast.Load()),
+                        args=[ast.Name(
+                            id='URL',
+                            ctx=ast.Load())],
+                        keywords=[]))],
+                    decorator_list=[ast.Name(
+                        id='staticmethod',
+                        ctx=ast.Load())],
+                    returns=ast.Subscript(
+                        value=ast.Name(
+                            id='Set',
+                            ctx=ast.Load()),
+                        slice=ast.Index(value=ast.Name(
+                            id='str',
+                            ctx=ast.Load())),
+                        ctx=ast.Load()),
+                    type_comment=None)],
+            decorator_list=[])
+
 
 def dataclass_def(name: str, description: Optional[str] = None, parent=None) -> ast.ClassDef:
 
@@ -261,7 +377,14 @@ def empty_data_module() -> ast.Module:
     source_utils.add_import(mm, dataclasses.__name__, field.__name__)
     return mm
 
-def empty_srv_module(robot: bool = False) -> ast.Module:
+
+def name_to_srv_url(api_name: str) -> str:
+
+    # TODO api_name to camel case
+    return f"{api_name.upper()}_SERVICE_URL"
+
+
+def empty_srv_module(api_name: str, robot: bool = False) -> ast.Module:
 
     mm = ast.Module(body=[])
     if robot:
@@ -275,14 +398,31 @@ def empty_srv_module(robot: bool = False) -> ast.Module:
 
     # TODO import os
 
+    mm.body.append(ast.Assign(
+            targets=[ast.Name(
+                id='URL',
+                ctx=ast.Store())],
+            value=ast.Call(
+                func=ast.Attribute(
+                    value=ast.Name(
+                        id=os.__name__,
+                        ctx=ast.Load()),
+                    attr=os.getenv.__name__,
+                    ctx=ast.Load()),
+                args=[ast.Str(
+                    s=name_to_srv_url(api_name),
+                    kind='')],
+                keywords=[]),
+            type_comment=None))
+
     return mm
 
 
 def main():
 
-    # TODO support multiple services
-    # TODO put common definitions into data/common.py
     data_modules: Dict[str, ast.Module] = {}
+    data_modules_names: Dict[str, Set[str]] = {}
+
     api_spec: Dict[str, Dict] = {}
 
     for module in (arcor2.data.common, arcor2.data.object_type, arcor2.data.robot, arcor2.data.services):
@@ -331,26 +471,83 @@ def main():
 
             try:
                 cls_def(api_name, data_modules, api_spec, done, common_models, model_name)
+                if api_name not in data_modules_names:  # TODO default dict
+                    data_modules_names[api_name] = set()
+
+                data_modules_names[api_name].add(model_name)
+
             except SkipException:
                 print(f"Skipping {name}")
                 continue
-
-    for api_name, module in data_modules.items():
-        print(api_name)
-        print(source_utils.tree_to_str(module))
 
     srv_modules: Dict[str, ast.Module] = {}
 
     for api_name, api in api_spec.items():
 
-        srv_modules[api_name] = empty_srv_module(api_name == "robot")
+        robot = api_name == "robot"
+        srv_modules[api_name] = empty_srv_module(api_name, robot)
+        srv_modules[api_name].body.append(srv_def(api_name, api["info"]["description"], RobotService.__name__ if robot else None))
 
-        for path in api["paths"]:
-            pass
+        # add actions
+        for path, path_value in api["paths"].items():
 
-        print(api_name)
-        print(source_utils.tree_to_str(srv_modules[api_name]))
+            for op, op_value in path_value.items():
 
+                if "Server" in op_value["tags"]:  # just ignore
+                    continue
+
+                if "Systems" in op_value["tags"]:  # TODO generate systems
+                    continue
+
+                if "Utils" in op_value["tags"]:  # TODO focus
+                    continue
+
+                if "Collisions" in op_value["tags"]:  # TODO generate ordinary methods
+                    continue
+
+                if op not in {"put", "get"}:
+                    # raise Exception(f"Unsupported type of http method: {op}")
+                    continue
+
+                method_name = helpers.camel_case_to_snake_case(op_value['operationId'])
+                desc = op_value["summary"]
+
+                print(f"path: {path}, op_id: {op_value['operationId']}, tags: {op_value['tags']}")
+
+                if "parameters" in op_value:
+                    for param in op_value["parameters"]:
+
+                        name = param["name"]
+                        desc = param.get("description", None)
+
+                        if "type" in param["schema"]:
+                            ptype = TYPE_MAPPING[param["schema"]["type"]].__name__
+                        elif "$ref" in param["schema"]:
+
+                            type_name = param["schema"]["$ref"].split("/")[-1]
+
+                            if type_name in ARCOR2_DATA_CLASSES:
+                                ptype = ARCOR2_DATA_CLASSES[type_name].__name__
+                            elif type_name in common_models:
+                                # TODO add import
+                                ptype = type_name
+                            elif type_name in data_modules_names[api_name]:
+                                # TODO add import
+                                ptype = type_name
+                            else:
+                                raise Exception(f"Unknown parameter type: {type_name}")
+
+    # with tempfile.TemporaryDirectory() as tmp_dir:
+    os.mkdir("generated_package")  # TODO get package name as argument?
+    os.chdir("generated_package")
+    os.mkdir("data")
+    for module_name, module in data_modules.items():
+        with open(os.path.join("data", module_name + ".py"), "w") as mod_file:
+            mod_file.write(source_utils.tree_to_str(module))
+
+    for api_name, api in api_spec.items():
+        with open(api_name + ".py", "w") as api_file:
+            api_file.write(source_utils.tree_to_str(srv_modules[api_name]))
 
 
 if __name__ == '__main__':
