@@ -1,3 +1,5 @@
+import json
+
 from arcor2.data.common import Project, ProjectRobotJoints, Scene
 from arcor2.parameter_plugins.base import ParameterPlugin, TypesDict, ParameterPluginException
 from arcor2.services import RobotService
@@ -28,10 +30,14 @@ class JointsPlugin(ParameterPlugin):
 
             for param in action.parameters:
                 if param.id == "robot_id":
-                    robot_id = param.value
+                    robot_id = json.loads(param.value)
                     break
             else:
                 raise ParameterPluginException(f"Parameter {param.id} of action {action.id} depends on"
                                                f" 'robot_id' parameter, which could not be found.")
 
         return project.action_point(ap_id).get_joints(robot_id, value_id)
+
+    @classmethod
+    def value_to_json(cls, value: ProjectRobotJoints) -> str:
+        return value.to_json()

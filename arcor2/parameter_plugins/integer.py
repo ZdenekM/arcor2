@@ -1,11 +1,21 @@
 from typing import Callable, List, Tuple, Any, Type
+from dataclasses import dataclass
 
 from typed_ast import ast3 as ast
+from dataclasses_jsonschema import JsonSchemaMixin
 
 from arcor2.data.common import Project, Scene
 from arcor2.parameter_plugins.base import ParameterPlugin, ParameterPluginException, TypesDict
+from arcor2.parameter_plugins.list import ListParameterPlugin, get_type_name
 from arcor2.data.object_type import ActionParameterMeta
 from arcor2.source.utils import find_asserts
+
+
+@dataclass
+class IntegerParameterExtra(JsonSchemaMixin):
+
+    minimum: Any
+    maximum: Any
 
 
 def get_assert_minimum_maximum(asserts: List[ast.Assert], param_name: str) -> Tuple[Any, Any]:
@@ -49,8 +59,7 @@ def get_min_max(cls: Type[ParameterPlugin], param_meta: ActionParameterMeta, act
         if var is not None and not isinstance(minimum, cls.type()):
             raise ParameterPluginException("Parameter bounds has incorrect type.")
 
-    param_meta.minimum = minimum
-    param_meta.maximum = maximum
+    param_meta.extra = IntegerParameterExtra(minimum, maximum).to_json()
 
 
 class IntegerPlugin(ParameterPlugin):
@@ -71,4 +80,24 @@ class IntegerPlugin(ParameterPlugin):
 
     @classmethod
     def value(cls, type_defs: TypesDict, scene: Scene, project: Project, action_id: str, parameter_id: str) -> int:
-        return super(IntegerPlugin, cls).value(type_defs, scene, project, action_id, parameter_id)
+        return cls.type()(super(IntegerPlugin, cls).value(type_defs, scene, project, action_id, parameter_id))
+
+
+class IntegerListPlugin(ListParameterPlugin):
+
+    @classmethod
+    def type(cls):
+        return List[int]
+
+    @classmethod
+    def type_name(cls) -> str:
+        return get_type_name(IntegerPlugin)
+
+    @classmethod
+    def meta(cls, param_meta: ActionParameterMeta, action_method: Callable, action_node: ast.FunctionDef) -> None:
+        super(IntegerListPlugin, cls).meta(param_meta, action_method, action_node)
+
+    @classmethod
+    def value(cls, type_defs: TypesDict, scene: Scene, project: Project, action_id: str, parameter_id: str) \
+            -> List[int]:
+        return super(IntegerListPlugin, cls).value(type_defs, scene, project, action_id, parameter_id)
