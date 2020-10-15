@@ -23,7 +23,7 @@ from websockets.server import WebSocketServerProtocol as WsClient
 
 import arcor2_execution
 import arcor2_execution_data
-from arcor2 import ws_server
+from arcor2.ws import server
 from arcor2.data import common, compile_json_schemas
 from arcor2.data import rpc as arcor2_rpc
 from arcor2.data.events import ActionState, CurrentAction, Event, PackageInfo, PackageState, ProjectException
@@ -419,7 +419,7 @@ async def unregister(websocket: WsClient) -> None:
     CLIENTS.remove(websocket)
 
 
-RPC_DICT: ws_server.RPC_DICT_TYPE = {
+RPC_DICT: server.RPC_DICT_TYPE = {
     rpc.RunPackage.__name__: (rpc.RunPackage, run_package_cb),
     rpc.StopPackage.__name__: (rpc.StopPackage, stop_package_cb),
     rpc.PausePackage.__name__: (rpc.PausePackage, pause_package_cb),
@@ -436,7 +436,7 @@ RPC_DICT: ws_server.RPC_DICT_TYPE = {
 async def aio_main() -> None:
 
     await websockets.serve(
-        functools.partial(ws_server.server, logger=logger, register=register, unregister=unregister, rpc_dict=RPC_DICT),
+        functools.partial(server.server, logger=logger, register=register, unregister=unregister, rpc_dict=RPC_DICT),
         "0.0.0.0",
         port_from_url(URL),
     )

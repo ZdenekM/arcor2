@@ -24,7 +24,7 @@ import arcor2_arserver
 import arcor2_arserver_data
 import arcor2_execution_data
 from arcor2 import action as action_mod
-from arcor2 import ws_server
+from arcor2.ws import server
 from arcor2.data import compile_json_schemas, events, rpc
 from arcor2.exceptions import Arcor2Exception
 from arcor2.parameter_plugins import PARAM_PLUGINS
@@ -63,7 +63,7 @@ async def handle_manager_incoming_messages(manager_client) -> None:
             if "event" in msg:
 
                 if glob.INTERFACES:
-                    await asyncio.gather(*[ws_server.send_json_to_client(intf, message) for intf in glob.INTERFACES])
+                    await asyncio.gather(*[server.send_json_to_client(intf, message) for intf in glob.INTERFACES])
 
                 try:
                     evt = event_mapping[msg["event"]].from_dict(msg)
@@ -148,7 +148,7 @@ async def _initialize_server() -> None:
     await osa.get_object_types()
 
     bound_handler = functools.partial(
-        ws_server.server,
+        server.server,
         logger=glob.logger,
         register=register,
         unregister=unregister,
@@ -216,7 +216,7 @@ async def system_info_cb(req: srpc.c.SystemInfo.Request, ui: WsClient) -> srpc.c
     return resp
 
 
-RPC_DICT: ws_server.RPC_DICT_TYPE = {srpc.c.SystemInfo.__name__: (srpc.c.SystemInfo, system_info_cb)}
+RPC_DICT: server.RPC_DICT_TYPE = {srpc.c.SystemInfo.__name__: (srpc.c.SystemInfo, system_info_cb)}
 
 # discovery of RPC callbacks
 # TODO refactor it into arcor2 package (to be used by arcor2_execution)
@@ -239,7 +239,7 @@ for exposed_rpc in EXPOSED_RPCS:
 
 
 # events from clients
-EVENT_DICT: ws_server.EVENT_DICT_TYPE = {}
+EVENT_DICT: server.EVENT_DICT_TYPE = {}
 
 
 async def aio_main() -> None:

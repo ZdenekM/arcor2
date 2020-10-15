@@ -5,7 +5,7 @@ from typing import Awaitable, Callable, Dict
 from websockets.server import WebSocketServerProtocol as WsClient
 
 from arcor2 import transformations as tr
-from arcor2 import ws_server
+from arcor2.ws import server
 from arcor2.data import common
 from arcor2.exceptions import Arcor2Exception
 from arcor2.object_types.abstract import Robot
@@ -42,7 +42,7 @@ async def robot_joints_event(robot_id: str) -> None:
 
         evt_json = evt.to_json()
         await asyncio.gather(
-            *[ws_server.send_json_to_client(ui, evt_json) for ui in glob.ROBOT_JOINTS_REGISTERED_UIS[robot_id]]
+            *[server.send_json_to_client(ui, evt_json) for ui in glob.ROBOT_JOINTS_REGISTERED_UIS[robot_id]]
         )
 
         end = time.monotonic()
@@ -83,7 +83,7 @@ async def robot_eef_pose_event(robot_id: str) -> None:
 
         evt_json = evt.to_json()
         await asyncio.gather(
-            *[ws_server.send_json_to_client(ui, evt_json) for ui in glob.ROBOT_EEF_REGISTERED_UIS[robot_id]]
+            *[server.send_json_to_client(ui, evt_json) for ui in glob.ROBOT_EEF_REGISTERED_UIS[robot_id]]
         )
 
         end = time.monotonic()
