@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from typing import List, Optional, Set
 
 from dataclasses_jsonschema import JsonSchemaMixin
+from PIL import Image  # type: ignore
 
 from arcor2 import CancelDict, DynamicParamDict
 from arcor2.clients import scene_service
+from arcor2.data.camera import CameraParameters
 from arcor2.data.common import Joint, Pose, SceneObject
 from arcor2.data.object_type import Models
 from arcor2.data.robot import RobotType
@@ -214,10 +216,37 @@ class Robot(GenericWithPose, metaclass=abc.ABCMeta):
         raise NotImplementedError()
 
 
+class Camera(GenericWithPose, metaclass=abc.ABCMeta):
+    """Abstract class representing camera and its basic capabilities."""
+
+    def __init__(
+        self,
+        obj_id: str,
+        name: str,
+        pose: Pose,
+        collision_model: Optional[Models] = None,
+        settings: Optional[Settings] = None,
+    ) -> None:
+        super(Camera, self).__init__(obj_id, name, pose, collision_model, settings)
+
+        self.depth_camera_params: Optional[CameraParameters] = None
+        self.color_camera_params: Optional[CameraParameters] = None
+
+    def color_image(self) -> Image.Image:
+        raise NotImplementedError()
+
+    def depth_image(self) -> Image.Image:
+        raise NotImplementedError()
+
+    def calibrate(self) -> Pose:
+        raise NotImplementedError()
+
+
 __all__ = [
     Generic.__name__,
     GenericWithPose.__name__,
     Robot.__name__,
     GenericException.__name__,
     RobotException.__name__,
+    Camera.__name__,
 ]
