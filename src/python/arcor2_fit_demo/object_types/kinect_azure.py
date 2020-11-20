@@ -3,11 +3,11 @@ from typing import NamedTuple, Optional
 
 import numpy as np  # type: ignore
 import pyk4a
-from arcor2.data.camera import CameraParameters
 from PIL import Image  # type: ignore
 from pyk4a import Config, ImageFormat, K4AException, PyK4A, PyK4ACapture
 
-from arcor2.data.common import Pose
+from arcor2.data.camera import CameraParameters
+from arcor2.data.common import ActionMetadata, Pose
 from arcor2.data.object_type import Models
 from arcor2.exceptions import Arcor2Exception
 from arcor2.object_types.abstract import Camera, Settings
@@ -142,3 +142,6 @@ class KinectAzure(Camera):
 
         super(KinectAzure, self).cleanup()
         self._k4a.stop()
+
+    color_image.__action__ = ActionMetadata(blocking=True)  # type: ignore
+    depth_image.__action__ = ActionMetadata(blocking=True)  # type: ignore
