@@ -34,14 +34,12 @@ def get_poses(
 
     rvec, tvec, _ = aruco.estimatePoseSingleMarkers(corners, marker_size, camera_matrix, dist_matrix)
 
-    """
-    backtorgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
-    aruco.drawDetectedMarkers(backtorgb, corners)  # Draw A square around the markers
-    aruco.drawAxis(backtorgb, camera_matrix, dist_matrix, rvec, tvec, 0.15)
+    if __debug__:
+        backtorgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+        aruco.drawDetectedMarkers(backtorgb, corners)  # Draw A square around the markers
+        aruco.drawAxis(backtorgb, camera_matrix, dist_matrix, rvec, tvec, 0.15)
 
-    cv2.imshow('image', backtorgb)
-    cv2.waitKey(1000)
-    """
+        cv2.imwrite("marker.jpg", backtorgb)
 
     rvec = rvec.reshape(len(ids), 3)
     tvec = tvec.reshape(len(ids), 3)
@@ -57,7 +55,7 @@ def get_poses(
 
         camera_rot_matrix = marker_rot_matrix.transpose()
 
-        camera_trans_vector = -np.matmul(camera_rot_matrix, tvec[idx].reshape(3, 1)).flatten()
+        camera_trans_vector = np.matmul(-camera_rot_matrix, tvec[idx].reshape(3, 1)).flatten()
 
         o = Orientation()
         o.set_from_quaternion(quaternion.from_rotation_matrix(camera_rot_matrix))

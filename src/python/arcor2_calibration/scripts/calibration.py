@@ -3,7 +3,7 @@
 import argparse
 import json
 import os
-from typing import Tuple
+from typing import Tuple, Union
 
 from apispec import APISpec
 from apispec_webframeworks.flask import FlaskPlugin
@@ -30,7 +30,9 @@ spec = APISpec(
     plugins=[FlaskPlugin(), DataclassesPlugin()],
 )
 
-MARKER_SIZE = float(os.getenv("ARCOR2_CALIBRATION_MARKER_SIZE", 0.1))
+RETURN_TYPE = Union[Tuple[str, int], Response, Tuple[Response, int]]
+
+MARKER_SIZE = float(os.getenv("ARCOR2_CALIBRATION_MARKER_SIZE", 0.09))
 MARKER_ID = int(os.getenv("ARCOR2_CALIBRATION_MARKER_ID", 10))
 
 app = Flask(__name__)
@@ -43,7 +45,7 @@ def get_swagger() -> str:
 
 
 @app.route("/calibration", methods=["PUT"])
-def get_calibration() -> Tuple[Response, int]:
+def get_calibration() -> RETURN_TYPE:
     """Get calibration (camera pose wrt. marker)
     ---
     put:
@@ -123,7 +125,10 @@ def get_calibration() -> Tuple[Response, int]:
 
     dist_matrix = [float(val) for val in request.args.getlist("distCoefs")]
     poses = get_poses(camera_matrix, dist_matrix, image, MARKER_SIZE)
-    pose = poses[MARKER_ID]  # TODO this is just temporary (single-marker) solution
+    try:
+        pose = poses[MARKER_ID]  # TODO this is just temporary (single-marker) solution
+    except KeyError:
+        return "Marker not found", 404
 
     return jsonify(pose.to_dict()), 200
 

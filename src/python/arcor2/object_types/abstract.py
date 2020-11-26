@@ -232,8 +232,6 @@ class Camera(GenericWithPose, metaclass=abc.ABCMeta):
         self.depth_camera_params: Optional[CameraParameters] = None
         self.color_camera_params: Optional[CameraParameters] = None
 
-
-
     def color_image(self) -> Image.Image:
         raise NotImplementedError()
 

@@ -45,6 +45,9 @@ class KinectAzure:
         # order of parameters in JSON hopefully corresponds to order of parameters in this struct
         # https://microsoft.github.io/Azure-Kinect-Sensor-SDK/master/structk4a__calibration__intrinsic__parameters__t_1_1__param.html
 
+        # for mode related offsets see this
+        # https://github.com/microsoft/Azure-Kinect-Sensor-SDK/blob/90f77529f5ad19efd1e8f155a240c329e3bcbbdf/src/transformation/mode_specific_calibration.c#L95
+
         # "CALIBRATION_LensDistortionModelBrownConrady"
 
         img = self.color_image()
@@ -57,10 +60,6 @@ class KinectAzure:
 
                 params = camera["Intrinsics"]["ModelParameters"]
 
-                # TODO
-                # float cx = params->param.cx * mode_info->calibration_image_binned_resolution[0];
-                # cx -= mode_info->crop_offset[0];
-                # cy -= mode_info->crop_offset[1];
                 cx = params[0] * img.width
                 cy = params[1] * img.height
 
@@ -77,13 +76,18 @@ class KinectAzure:
                 p2 = params[12]
                 p1 = params[13]
 
-                cp = CameraParameters(cx, cy, fx, fy, [k1, k2, p1, p2, k3, k4, k5, k6])
+                cp = CameraParameters(fx, fy, cx, cy, [k1, k2, p1, p2, k3, k4, k5, k6])
 
                 if camera["Location"] == "CALIBRATION_CameraLocationD0":
                     assert self.depth_camera_params is None
+                    # apply crop offset
+                    cp.cx -= 192  # TODO this depends on the mode
+                    cp.cy -= 180
                     self.depth_camera_params = cp
                 elif camera["Location"] == "CALIBRATION_CameraLocationPV0":
                     assert self.color_camera_params is None
+                    cp.cx -= 0  # TODO this depends on the mode
+                    cp.cy -= 384
                     self.color_camera_params = cp
 
         except (KeyError, IndexError) as e:
