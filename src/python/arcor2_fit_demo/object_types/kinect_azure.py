@@ -1,9 +1,9 @@
 import json
 from typing import NamedTuple, Optional
 
-import numpy as np  # type: ignore
+import numpy as np
 import pyk4a
-from PIL import Image  # type: ignore
+from PIL import Image
 from pyk4a import Config, ImageFormat, K4AException, PyK4A, PyK4ACapture
 
 from arcor2.data.camera import CameraParameters

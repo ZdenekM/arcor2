@@ -2,8 +2,8 @@ import base64
 import io
 import json
 
-import PIL.Image  # type: ignore
-from PIL.Image import Image  # type: ignore
+import PIL.Image
+from PIL.Image import Image
 
 
 def image_to_base64(value: Image) -> str:

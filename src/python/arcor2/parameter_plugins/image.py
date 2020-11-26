@@ -1,10 +1,10 @@
 from typing import Any
 
-import PIL.Image
 from PIL.Image import Image
 
 from arcor2.cached import CachedProject as CProject
 from arcor2.cached import CachedScene as CScene
+from arcor2.image import image_from_json, image_to_json
 from arcor2.parameter_plugins.base import ParameterPlugin, TypesDict
 
 

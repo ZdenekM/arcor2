@@ -1,7 +1,7 @@
 from io import BytesIO
 
 from arcor2_calibration_data import CALIBRATION_URL
-from PIL.Image import Image  # type: ignore
+from PIL.Image import Image
 
 from arcor2 import rest
 from arcor2.data.camera import CameraParameters

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Set
 
 from dataclasses_jsonschema import JsonSchemaMixin
-from PIL import Image  # type: ignore
+from PIL import Image
 
 from arcor2 import CancelDict, DynamicParamDict
 from arcor2.clients import scene_service
