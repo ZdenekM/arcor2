@@ -13,7 +13,7 @@ def main() -> None:
     upload_def(AbstractDobot)
     upload_def(DobotMagician, urdf=Urdf(get_data("dobot-magician"), DobotMagician.urdf_package_name))
     upload_def(DobotM1, urdf=Urdf(get_data("dobot-m1"), DobotM1.urdf_package_name))
-    upload_def(KinectAzure)
+    upload_def(KinectAzure)  # TODO add its mesh
 
 
 if __name__ == "__main__":

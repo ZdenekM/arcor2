@@ -5,7 +5,7 @@ from websockets.server import WebSocketServerProtocol as WsClient
 
 from arcor2.data.events import Event
 from arcor2.exceptions import Arcor2Exception
-from arcor2.image import image_to_base64
+from arcor2.image import image_to_str
 from arcor2.object_types.abstract import Camera
 from arcor2_arserver import globals as glob
 from arcor2_arserver import notifications as notif
@@ -33,7 +33,7 @@ async def camera_color_image_cb(req: CameraColorImage.Request, ui: WsClient) -> 
     ensure_scene_started()
     camera = get_camera_instance(req.args.id)
     resp = CameraColorImage.Response()
-    resp.data = image_to_base64(camera.color_image())
+    resp.data = image_to_str(camera.color_image())
     return resp
 
 
