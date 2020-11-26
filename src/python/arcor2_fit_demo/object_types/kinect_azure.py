@@ -24,6 +24,9 @@ class ColorAndDepthImage(NamedTuple):
 
 
 class KinectAzure(Camera):
+
+    _ABSTRACT = False
+
     def __init__(
         self,
         obj_id: str,

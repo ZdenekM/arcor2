@@ -9,7 +9,8 @@ from PIL.Image import Image
 def image_to_base64(value: Image) -> str:
 
     with io.BytesIO() as output:
-        value.save(output, "jpeg")
+        rgb_im = value.convert('RGB')
+        rgb_im.save(output, "JPEG")
         b64_bytes = base64.b64encode(output.getvalue())
         return b64_bytes.decode()
 
