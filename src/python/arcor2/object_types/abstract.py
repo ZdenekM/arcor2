@@ -229,13 +229,18 @@ class Camera(GenericWithPose, metaclass=abc.ABCMeta):
     ) -> None:
         super(Camera, self).__init__(obj_id, name, pose, collision_model, settings)
 
-        self.depth_camera_params: Optional[CameraParameters] = None
         self.color_camera_params: Optional[CameraParameters] = None
 
     def color_image(self) -> Image.Image:
         raise NotImplementedError()
 
     def depth_image(self) -> Image.Image:
+        """This should provide depth image transformed into color camera
+        perspective.
+
+        :return:
+        """
+
         raise NotImplementedError()
 
 

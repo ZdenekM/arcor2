@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import argparse
+import io
 import json
 import os
+import zipfile
 from functools import wraps
 from typing import Optional, Tuple
 
@@ -180,12 +182,74 @@ def get_color_camera_parameters() -> Tuple[str, int]:
     return jsonify(_kinect.color_camera_params.to_dict()), 200
 
 
+@app.route("/depth/image", methods=["GET"])
+@requires_started
+def get_image_depth() -> Response:
+    """Get the depth image.
+    ---
+    get:
+        description: Get the depth image.
+        tags:
+           - Depth camera
+        responses:
+            200:
+              description: Ok
+              content:
+                image/jpeg:
+                    schema:
+                        type: string
+            403:
+              description: Not started
+    """
+
+    assert _kinect is not None
+    return send_file(image_to_bytes_io(_kinect.depth_image(), lossless=True), mimetype="image/png", cache_timeout=0)
+
+
+@app.route("/synchronized/image", methods=["GET"])
+@requires_started
+def get_image_both() -> Response:
+    """Get the both color/depth image.
+    ---
+    get:
+        description: Get the depth image.
+        tags:
+           - Synchronized
+        responses:
+            200:
+              description: Ok
+              content:
+                application/zip:
+                schema:
+                  type: string
+                  format: binary
+            403:
+              description: Not started
+    """
+
+    assert _kinect is not None
+
+    both = _kinect.sync_images()
+    mem_zip = io.BytesIO()
+
+    with zipfile.ZipFile(mem_zip, mode="w", compression=zipfile.ZIP_STORED) as zf:
+        zf.writestr("color.jpg", image_to_bytes_io(both.color).getvalue())
+        zf.writestr("depth.png", image_to_bytes_io(both.depth, lossless=True).getvalue())
+
+    mem_zip.seek(0)
+    return send_file(
+        mem_zip, mimetype="application/zip", cache_timeout=0, as_attachment=True, attachment_filename="synchronized.zip"
+    )
+
+
 with app.test_request_context():
     spec.path(view=put_start)
     spec.path(view=put_stop)
     spec.path(view=get_started)
     spec.path(view=get_image_color)
     spec.path(view=get_color_camera_parameters)
+    spec.path(view=get_image_both)
+    spec.path(view=get_image_depth)
 
 spec.components.schema(CameraParameters.__name__, schema=CameraParameters)
 

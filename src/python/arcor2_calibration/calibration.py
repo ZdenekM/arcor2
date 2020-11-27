@@ -11,7 +11,7 @@ from arcor2.data.common import Orientation, Pose, Position
 
 
 def get_poses(
-    camera_matrix: List[List[float]], dist_matrix: List[float], image: Image.Image, marker_size: float = 0.1
+    camera_matrix: List[List[float]], dist_matrix: List[float], image: Image.Image, marker_size: float
 ) -> Dict[int, Pose]:
 
     camera_matrix = np.array(camera_matrix)

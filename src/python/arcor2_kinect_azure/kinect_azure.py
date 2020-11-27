@@ -28,7 +28,7 @@ class KinectAzure:
 
         self._k4a = PyK4A(
             Config(
-                color_resolution=pyk4a.ColorResolution.RES_720P,
+                color_resolution=pyk4a.ColorResolution.RES_1080P,
                 depth_mode=pyk4a.DepthMode.NFOV_UNBINNED,
                 synchronized_images_only=True,
                 color_format=ImageFormat.COLOR_BGRA32,
@@ -52,7 +52,7 @@ class KinectAzure:
 
         img = self.color_image()
 
-        self.depth_camera_params: Optional[CameraParameters] = None
+        # no need to handle depth camera parameters as we will always provide transformed depth image
         self.color_camera_params: Optional[CameraParameters] = None
 
         try:
@@ -60,11 +60,11 @@ class KinectAzure:
 
                 params = camera["Intrinsics"]["ModelParameters"]
 
-                cx = params[0] * img.width
-                cy = params[1] * img.height
+                cx = params[0]
+                cy = params[1]
 
-                fx = params[2] * img.width
-                fy = params[3] * img.height
+                fx = params[2]
+                fy = params[3]
 
                 k1 = params[4]
                 k2 = params[5]
@@ -78,22 +78,28 @@ class KinectAzure:
 
                 cp = CameraParameters(fx, fy, cx, cy, [k1, k2, p1, p2, k3, k4, k5, k6])
 
-                if camera["Location"] == "CALIBRATION_CameraLocationD0":
-                    assert self.depth_camera_params is None
-                    # apply crop offset
-                    cp.cx -= 192  # TODO this depends on the mode
-                    cp.cy -= 180
-                    self.depth_camera_params = cp
-                elif camera["Location"] == "CALIBRATION_CameraLocationPV0":
+                if camera["Location"] == "CALIBRATION_CameraLocationPV0":
+
+                    h = img.width / 4 * 3
+
+                    # un-normalize values
+                    cp.cx *= img.width
+                    cp.cy *= h
+                    cp.fx *= img.width
+                    cp.fy *= h
+
                     assert self.color_camera_params is None
-                    cp.cx -= 0  # TODO this depends on the mode
-                    cp.cy -= 384
+
+                    # apply crop offset
+                    cp.cy -= (img.width / 4 * 3 - img.width / 16 * 9) / 2
                     self.color_camera_params = cp
+
+                    break
 
         except (KeyError, IndexError) as e:
             raise KinectAzureException("Failed to parse calibration.") from e
 
-        if self.color_camera_params is None or self.depth_camera_params is None:
+        if self.color_camera_params is None:
             raise KinectAzureException("Failed to get camera calibration.")
 
     def _bgra_to_rgba(self, arr: np.ndarray) -> None:
@@ -126,7 +132,7 @@ class KinectAzure:
         if not np.any(capture.depth):
             raise KinectAzureException("Depth image not available.")
 
-        return Image.fromarray(capture.depth)
+        return Image.fromarray(capture.transformed_depth)
 
     def sync_images(self) -> ColorAndDepthImage:
 

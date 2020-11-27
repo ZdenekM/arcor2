@@ -6,18 +6,20 @@ from PIL.Image import Image
 
 TARGET_MODE = "RGB"
 TARGET_FORMAT = "JPEG"
+LOSSLESS_TARGET_FORMAT = "PNG"
 ENCODING = "latin-1"
 
 
-def image_to_bytes_io(value: Image) -> io.BytesIO:
+def image_to_bytes_io(value: Image, lossless: bool = False) -> io.BytesIO:
 
     output = io.BytesIO()
+    fmt = LOSSLESS_TARGET_FORMAT if lossless else TARGET_FORMAT
 
     if value.mode != TARGET_MODE:
         rgb_im = value.convert(TARGET_MODE)
-        rgb_im.save(output, TARGET_FORMAT)
+        rgb_im.save(output, fmt)
     else:
-        value.save(output, TARGET_FORMAT)
+        value.save(output, fmt)
     output.seek(0)
     return output
 
