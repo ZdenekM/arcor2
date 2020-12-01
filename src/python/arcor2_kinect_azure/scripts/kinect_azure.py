@@ -151,7 +151,7 @@ def get_image_color() -> Response:
     """
 
     assert _kinect is not None
-    return send_file(image_to_bytes_io(_kinect.color_image()), mimetype="image/jpeg", cache_timeout=0)
+    return send_file(image_to_bytes_io(_kinect.color_image(), target_format="JPEG", target_mode="RGB"), mimetype="image/jpeg", cache_timeout=0)
 
 
 @app.route("/color/parameters", methods=["GET"])
@@ -203,7 +203,7 @@ def get_image_depth() -> Response:
     """
 
     assert _kinect is not None
-    return send_file(image_to_bytes_io(_kinect.depth_image(), lossless=True), mimetype="image/png", cache_timeout=0)
+    return send_file(image_to_bytes_io(_kinect.depth_image(), target_format="PNG"), mimetype="image/png", cache_timeout=0)
 
 
 @app.route("/synchronized/image", methods=["GET"])

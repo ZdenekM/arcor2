@@ -1,5 +1,6 @@
 import math
 import uuid
+import numpy as np
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, unique
@@ -160,6 +161,14 @@ class Pose(JsonSchemaMixin):
 
     position: Position = field(default_factory=Position)
     orientation: Orientation = field(default_factory=Orientation)
+
+    def as_transformation_matrix(self) -> np.array:
+
+        arr = np.empty((4, 4))
+        arr[:3, :3] = quaternion.as_rotation_matrix(self.orientation.as_quaternion())
+        arr[:3, 3] = list(self.position)
+        arr[3, :] = [0, 0, 0, 1]
+        return arr
 
 
 @dataclass
