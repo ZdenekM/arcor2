@@ -24,9 +24,7 @@ from arcor2_fit_demo.object_types.dobot_magician import DobotMagician, DobotSett
 
 # https://docs.opencv.org/4.4.0/dc/d2c/tutorial_real_time_pose.html
 
-# TODO use higher resolution depth image without transformation?
 # TODO instead of pointcloud, use create_from_depth_image from open3d?
-# TODO build opencv-contrib-python (so it supports openmp)
 
 
 def pointcloud(depth, fov_y, aspect_ratio):  # https://github.com/mmatl/pyrender/issues/14
@@ -77,15 +75,17 @@ def draw_registration_result(obj, scene, initial_tr, icp_tr):
 def main() -> None:
 
     ka = KinectAzure("", "", Pose(), settings=KinectSettings("http://localhost:5016"))
-    dobot = DobotMagician("", "", Pose(Position(-0.18, 0.01, 0.11)), settings=DobotSettings("/dev/ttyUSB0"))
+    dobot = DobotMagician("", "", Pose(Position(-0.24, 0.05, 0.11)), settings=DobotSettings("/dev/ttyUSB0"))
 
     pil_camera_image = ka.color_image()
     ka.pose = calib_client.estimate_camera_pose(ka.color_camera_params, pil_camera_image)
 
+    """
     orig_pose =dobot.get_end_effector_pose("")
     dobot.move(Pose(Position(z=0.01), orig_pose.orientation), MoveType.LINEAR)
     time.sleep(1)
     dobot.move(orig_pose, MoveType.LINEAR)
+    """
 
     with tempfile.TemporaryDirectory() as temp_dir:
 
@@ -124,9 +124,9 @@ def main() -> None:
         print("Initial dobot_tr_matrix")
         print(dobot_tr_matrix)
 
-        print("Averaging depth image...")
+        print("Averaging depth images...")
 
-        depth_avg_num: int = 32
+        depth_avg_num: int = 4  # TODO should be much more
 
         depth = depth_image_to_np(ka.depth_image())
 
@@ -138,61 +138,43 @@ def main() -> None:
         camera_tr_matrix = ka.pose.as_transformation_matrix()
         camera_matrix = ka.color_camera_params.as_camera_matrix()
 
-        _, fov_y, _, _, _ = cv2.calibrationMatrixValues(camera_matrix,
-                                                        (pil_camera_image.width, pil_camera_image.height), 0, 0)
-
+        _, fov_y, _, _, _ = cv2.calibrationMatrixValues(camera_matrix, (pil_camera_image.width, pil_camera_image.height), 0, 0)
         fov_y_rads = math.radians(fov_y)
         ar = pil_camera_image.width / pil_camera_image.height
-        scene_camera_pose = np.dot(camera_tr_matrix,
-                                   Pose(orientation=Orientation(1, 0, 0, 0)).as_transformation_matrix())
 
         iterations = 1
         for iteration in range(iterations):
 
             print(f"Iteration {iteration+1}/{iterations}")
 
-            scene = pyrender.Scene()
+            res_mesh = o3d.geometry.TriangleMesh()
+
             for tm in fk:
                 pose = fk[tm]
-                mesh = pyrender.Mesh.from_trimesh(tm, smooth=False)
-                scene.add(mesh, pose=np.dot(dobot_tr_matrix, pose))
+                mesh = o3d.geometry.TriangleMesh(vertices=o3d.utility.Vector3dVector(tm.vertices), triangles=o3d.utility.Vector3iVector(tm.faces))
+                mesh.transform(np.dot(dobot_tr_matrix, pose))
+                mesh.compute_triangle_normals()
+                mesh.compute_vertex_normals()
+                res_mesh += mesh
 
-            # Set up the camera -- z-axis away from the scene, x-axis right, y-axis up
-            scene.add(pyrender.PerspectiveCamera(yfov=fov_y_rads, znear=0.05, zfar=2.0), pose=scene_camera_pose)
+            sim_pcd = res_mesh.sample_points_uniformly(int(1e5))
 
-            # Set up the light -- a single spot light in the same spot as the camera
-            scene.add(pyrender.SpotLight(color=np.ones(3), intensity=1.0, innerConeAngle=np.pi / 16.0), pose=scene_camera_pose)
-
-            print("Rendering model...")
-
-            sim_rgb, sim_depth = renderer.render(scene)
-
-            """
-            plt.figure()
-            plt.imshow(depth)
-            plt.imshow(sim_depth, alpha=0.5)
-            plt.show()
-            plt.close()
-            """
-
-            sim_pc = pointcloud(sim_depth, fov_y_rads, ar)
+            # TODO use create_from_depth_image
             real_pc = pointcloud(depth, fov_y_rads, ar)
-
-            # filter out near/far points from the scene
-            th = 0.05
-            for axis in (0, 1, 2):
-                real_pc = real_pc[real_pc[:, axis] < np.amax(sim_pc[:, axis]) + th]
-                real_pc = real_pc[real_pc[:, axis] > np.amin(sim_pc[:, axis]) - th]
-
-            sim_pcd = o3d.geometry.PointCloud()
-            sim_pcd.points = o3d.utility.Vector3dVector(sim_pc)
 
             real_pcd = o3d.geometry.PointCloud()
             real_pcd.points = o3d.utility.Vector3dVector(real_pc)
 
             # inv = np.linalg.inv(camera_tr_matrix)
-            sim_pcd.transform(camera_tr_matrix)
+            # sim_pcd.transform(camera_tr_matrix)
             real_pcd.transform(camera_tr_matrix)
+
+            bb = sim_pcd.get_axis_aligned_bounding_box()
+            real_pcd = real_pcd.crop(bb.scale(1.25, bb.get_center()))
+            # sim_pcd.hidden_point_removal(np.array(list(ka.pose.position)), 0.1)  # TODO fix this
+
+            mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3)
+            o3d.visualization.draw_geometries([sim_pcd, real_pcd, mesh_frame])
 
             # print("Filtering out ground plane")
             # plane_model, inliers = real_pcd.segment_plane(distance_threshold=0.01, ransac_n=3, num_iterations=1000)
@@ -204,7 +186,7 @@ def main() -> None:
             print("Estimating normals...")
             real_pcd.estimate_normals()
 
-            threshold = 0.1
+            threshold = 1.0
             trans_init = np.identity(4)
 
             # print("Initial alignment")
@@ -212,9 +194,14 @@ def main() -> None:
             # print(evaluation)
 
             print("Apply point-to-point ICP")
-            reg_p2p = o3d.pipelines.registration.registration_icp(
-                sim_pcd, real_pcd, threshold, trans_init,
-                o3d.pipelines.registration.TransformationEstimationPointToPlane(), o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=10000))
+
+            loss = o3d.pipelines.registration.TukeyLoss(k=0.025)
+
+            p2l = o3d.pipelines.registration.TransformationEstimationPointToPlane(loss)
+            reg_p2p = o3d.pipelines.registration.registration_icp(sim_pcd, real_pcd,
+                                                                  threshold, trans_init,
+                                                                  p2l, o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=1000))
+
             print(reg_p2p)
             print("Transformation is:")
             print(reg_p2p.transformation)
