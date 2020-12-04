@@ -8,18 +8,27 @@ import cv2
 import math
 import quaternion
 from arcor2 import transformations as tr
+import open3d as o3d
+import matplotlib.pyplot as plt
+from PIL import Image
+import copy
+import time
 
 from arcor2.data.common import Pose, Position, Orientation
 from arcor2_fit_demo.object_types.kinect_azure import KinectAzure, Settings as KinectSettings
 from arcor2_calibration_data import client as calib_client
+from arcor2.image import image_to_cv2
 
+from arcor2_fit_demo.object_types.abstract_dobot import MoveType
 from arcor2_fit_demo.object_types.dobot_magician import DobotMagician, DobotSettings
 
-
 # https://docs.opencv.org/4.4.0/dc/d2c/tutorial_real_time_pose.html
-#
 
-# TODO use create_from_depth_image from open3d?
+# TODO use higher resolution depth image without transformation?
+# TODO instead of pointcloud, use create_from_depth_image from open3d?
+# TODO build opencv-contrib-python (so it supports openmp)
+
+
 def pointcloud(depth, fov_y, aspect_ratio):  # https://github.com/mmatl/pyrender/issues/14
 
     fy = 0.5 / np.tan(fov_y * 0.5)
@@ -34,22 +43,49 @@ def pointcloud(depth, fov_y, aspect_ratio):  # https://github.com/mmatl/pyrender
     y = mask[0]
 
     normalized_x = (x.astype(np.float32) - width * 0.5) / width
-    normalized_y = -(y.astype(np.float32) - height * 0.5) / height
+    normalized_y = (y.astype(np.float32) - height * 0.5) / height
 
     world_x = normalized_x * depth[y, x] / fx
     world_y = normalized_y * depth[y, x] / fy
-    world_z = -depth[y, x]
+    world_z = depth[y, x]
 
     return np.vstack((world_x, world_y, world_z)).T.astype(np.float32)
+
+
+def depth_image_to_np(depth: Image.Image) -> np.array:
+    return np.array(depth, dtype=np.float32) / 1000.0
+
+
+def draw_registration_result(obj, scene, initial_tr, icp_tr):
+
+    initial_temp = copy.deepcopy(obj)
+    aligned_temp = copy.deepcopy(obj)
+    scene_temp = copy.deepcopy(scene)
+
+    initial_temp.paint_uniform_color([1, 0, 0])
+    aligned_temp.paint_uniform_color([0, 1, 0])
+    scene_temp.paint_uniform_color([0, 0, 1])
+
+    initial_temp.transform(initial_tr)
+    aligned_temp.transform(icp_tr)
+
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.3)
+
+    o3d.visualization.draw_geometries([initial_temp, aligned_temp, scene_temp, mesh_frame])
 
 
 def main() -> None:
 
     ka = KinectAzure("", "", Pose(), settings=KinectSettings("http://localhost:5016"))
-    dobot = DobotMagician("", "", Pose(Position(-0.2, 0, 0.12)), settings=DobotSettings("/dev/ttyUSB0"))
+    dobot = DobotMagician("", "", Pose(Position(-0.18, 0.01, 0.11)), settings=DobotSettings("/dev/ttyUSB0"))
 
     pil_camera_image = ka.color_image()
     ka.pose = calib_client.estimate_camera_pose(ka.color_camera_params, pil_camera_image)
+
+    orig_pose =dobot.get_end_effector_pose("")
+    dobot.move(Pose(Position(z=0.01), orig_pose.orientation), MoveType.LINEAR)
+    time.sleep(1)
+    dobot.move(orig_pose, MoveType.LINEAR)
 
     with tempfile.TemporaryDirectory() as temp_dir:
 
@@ -81,92 +117,121 @@ def main() -> None:
         # fk = robot.visual_trimesh_fk(cfg=cfg)
         fk = robot.collision_trimesh_fk(cfg=cfg)
 
-        r = pyrender.OffscreenRenderer(viewport_width=pil_camera_image.width, viewport_height=pil_camera_image.height, point_size=1.0)
+        renderer = pyrender.OffscreenRenderer(viewport_width=pil_camera_image.width, viewport_height=pil_camera_image.height, point_size=1.0)
 
-        scene = pyrender.Scene()
-        for tm in fk:
-            pose = fk[tm]
-            mesh = pyrender.Mesh.from_trimesh(tm, smooth=False)
-            scene.add(mesh, pose=pose)
+        dobot_tr_matrix = dobot.pose.as_transformation_matrix()
 
+        print("Initial dobot_tr_matrix")
+        print(dobot_tr_matrix)
+
+        print("Averaging depth image...")
+
+        depth_avg_num: int = 32
+
+        depth = depth_image_to_np(ka.depth_image())
+
+        for _ in range(depth_avg_num-1):
+            depth += depth_image_to_np(ka.depth_image())
+
+        depth /= depth_avg_num
+
+        camera_tr_matrix = ka.pose.as_transformation_matrix()
         camera_matrix = ka.color_camera_params.as_camera_matrix()
 
-        _, fov_y, _, _, _ = cv2.calibrationMatrixValues(camera_matrix, (pil_camera_image.width, pil_camera_image.height), 0, 0)
+        _, fov_y, _, _, _ = cv2.calibrationMatrixValues(camera_matrix,
+                                                        (pil_camera_image.width, pil_camera_image.height), 0, 0)
 
         fov_y_rads = math.radians(fov_y)
         ar = pil_camera_image.width / pil_camera_image.height
+        scene_camera_pose = np.dot(camera_tr_matrix,
+                                   Pose(orientation=Orientation(1, 0, 0, 0)).as_transformation_matrix())
 
-        # Set up the camera -- z-axis away from the scene, x-axis right, y-axis up
-        camera = pyrender.PerspectiveCamera(yfov=fov_y_rads, znear=0.05, zfar=2.0)
+        iterations = 1
+        for iteration in range(iterations):
 
-        camera_pose = np.dot(ka.pose.as_transformation_matrix(), Pose(orientation=Orientation(1, 0, 0, 0)).as_transformation_matrix())
-        scene.add(camera, pose=camera_pose)
+            print(f"Iteration {iteration+1}/{iterations}")
 
-        # Set up the light -- a single spot light in the same spot as the camera
-        light = pyrender.SpotLight(color=np.ones(3), intensity=1.0,
-                                   innerConeAngle=np.pi / 16.0)
-        scene.add(light, pose=camera_pose)
+            scene = pyrender.Scene()
+            for tm in fk:
+                pose = fk[tm]
+                mesh = pyrender.Mesh.from_trimesh(tm, smooth=False)
+                scene.add(mesh, pose=np.dot(dobot_tr_matrix, pose))
 
-        print("Rendering model...")
+            # Set up the camera -- z-axis away from the scene, x-axis right, y-axis up
+            scene.add(pyrender.PerspectiveCamera(yfov=fov_y_rads, znear=0.05, zfar=2.0), pose=scene_camera_pose)
 
-        sim_rgb, sim_depth = r.render(scene)
-        sim_gray = cv2.cvtColor(sim_rgb, cv2.COLOR_BGR2GRAY)
+            # Set up the light -- a single spot light in the same spot as the camera
+            scene.add(pyrender.SpotLight(color=np.ones(3), intensity=1.0, innerConeAngle=np.pi / 16.0), pose=scene_camera_pose)
 
-        sim_pc = pointcloud(sim_depth, fov_y_rads, ar)
-        real_pc = pointcloud(np.array(ka.depth_image(), dtype=np.float32)/1000.0, fov_y_rads, ar)
+            print("Rendering model...")
 
-        print("Computing normals...")
+            sim_rgb, sim_depth = renderer.render(scene)
 
-        _, real_pc_norm = cv2.ppf_match_3d.computeNormalsPC3d(real_pc, 5, False, np.array([0, 0, 0]))
+            """
+            plt.figure()
+            plt.imshow(depth)
+            plt.imshow(sim_depth, alpha=0.5)
+            plt.show()
+            plt.close()
+            """
 
-        # https://github.com/opencv/opencv_contrib/blob/master/modules/surface_matching/samples/ppf_load_match.py
-        detector = cv2.ppf_match_3d_PPF3DDetector(0.05)
+            sim_pc = pointcloud(sim_depth, fov_y_rads, ar)
+            real_pc = pointcloud(depth, fov_y_rads, ar)
 
-        print('Training...')
-        detector.trainModel(sim_pc)
+            # filter out near/far points from the scene
+            th = 0.05
+            for axis in (0, 1, 2):
+                real_pc = real_pc[real_pc[:, axis] < np.amax(sim_pc[:, axis]) + th]
+                real_pc = real_pc[real_pc[:, axis] > np.amin(sim_pc[:, axis]) - th]
 
-        print('Matching...')
-        results = detector.match(real_pc_norm)
+            sim_pcd = o3d.geometry.PointCloud()
+            sim_pcd.points = o3d.utility.Vector3dVector(sim_pc)
 
-        print('Performing ICP...')
-        icp = cv2.ppf_match_3d_ICP(10)
-        register_failure, results = icp.registerModelToScene(sim_pc, real_pc_norm, results[:2])
+            real_pcd = o3d.geometry.PointCloud()
+            real_pcd.points = o3d.utility.Vector3dVector(real_pc)
 
-        if register_failure:
-            raise ValueError("Failed to register model to scene.")
+            # inv = np.linalg.inv(camera_tr_matrix)
+            sim_pcd.transform(camera_tr_matrix)
+            real_pcd.transform(camera_tr_matrix)
 
-        print("Poses: ")
-        for i, result in enumerate(results):
-            print("\n-- Pose to Model Index %d: NumVotes = %d, Residual = %f\n%s\n" % (
-            result.modelIndex, result.numVotes, result.residual, result.pose))
+            # print("Filtering out ground plane")
+            # plane_model, inliers = real_pcd.segment_plane(distance_threshold=0.01, ransac_n=3, num_iterations=1000)
+            # real_pcd = real_pcd.select_by_index(inliers, invert=True)
 
-        rest_mat = results[0].pose  # pose of the object within the scene (relative to the camera)
+            # print("Outlier removal...")
+            # real_pcd.remove_radius_outlier(nb_points=20, radius=0.01)
 
-        tvec = rest_mat[:3, 3]
+            print("Estimating normals...")
+            real_pcd.estimate_normals()
 
-        o = Orientation()
-        o.set_from_quaternion(quaternion.from_rotation_matrix(rest_mat[:3, :3]))
+            threshold = 0.1
+            trans_init = np.identity(4)
 
-        p = Pose(Position(tvec[0], tvec[1], tvec[2]), o)
-        print("Pose relative to camera:")
-        print(p)
-        ap = tr.make_pose_abs(ka.pose, p)
+            # print("Initial alignment")
+            # evaluation = o3d.pipelines.registration.evaluate_registration(sim_pcd, real_pcd, threshold, trans_init)
+            # print(evaluation)
 
-        print("Absolute pose:")
-        print(ap)
+            print("Apply point-to-point ICP")
+            reg_p2p = o3d.pipelines.registration.registration_icp(
+                sim_pcd, real_pcd, threshold, trans_init,
+                o3d.pipelines.registration.TransformationEstimationPointToPlane(), o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=10000))
+            print(reg_p2p)
+            print("Transformation is:")
+            print(reg_p2p.transformation)
+            draw_registration_result(sim_pcd, real_pcd, trans_init, reg_p2p.transformation)
 
-        import open3d as o3d
+            dobot_tr_matrix = np.dot(reg_p2p.transformation, dobot_tr_matrix)
 
-        tr_sim_pc = cv2.ppf_match_3d.transformPCPose(sim_pc, rest_mat)
+            print("dobot_tr_matrix")
+            print(dobot_tr_matrix)
 
-        sim_pcd = o3d.geometry.PointCloud()
-        sim_pcd.points = o3d.utility.Vector3dVector(tr_sim_pc)
-        sim_pcd.paint_uniform_color([0, 1, 0])
+        print("Final pose")
+        pose = Pose.from_transformation_matrix(dobot_tr_matrix)
+        print(pose)
 
-        real_pcd = o3d.geometry.PointCloud()
-        real_pcd.points = o3d.utility.Vector3dVector(real_pc)
+        dobot.pose = pose
 
-        o3d.visualization.draw_geometries([real_pcd, sim_pcd])
+        dobot.move(Pose(Position(z=0.01), dobot.get_end_effector_pose("").orientation), MoveType.LINEAR)
 
 
 if __name__ == "__main__":

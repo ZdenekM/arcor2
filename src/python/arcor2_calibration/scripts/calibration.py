@@ -32,7 +32,7 @@ spec = APISpec(
 
 RETURN_TYPE = Union[Tuple[str, int], Response, Tuple[Response, int]]
 
-MARKER_SIZE = float(os.getenv("ARCOR2_CALIBRATION_MARKER_SIZE", 0.09))
+MARKER_SIZE = float(os.getenv("ARCOR2_CALIBRATION_MARKER_SIZE", 0.091))
 MARKER_ID = int(os.getenv("ARCOR2_CALIBRATION_MARKER_ID", 10))
 
 app = Flask(__name__)
