@@ -3,11 +3,14 @@
 import argparse
 import json
 import os
+import tempfile
+import zipfile
 from typing import Tuple, Union
 
 from apispec import APISpec
 from apispec_webframeworks.flask import FlaskPlugin
 from arcor2_calibration_data import CALIBRATION_URL, SERVICE_NAME
+from arcor2_calibration_data.client import CalibrateRobotArgs
 from dataclasses_jsonschema.apispec import DataclassesPlugin
 from flask import Flask, Response, jsonify, request
 from flask_cors import CORS
@@ -15,10 +18,12 @@ from flask_swagger_ui import get_swaggerui_blueprint
 from PIL import Image
 
 import arcor2_calibration
+from arcor2 import rest
 from arcor2.data.common import Pose
 from arcor2.helpers import port_from_url
 from arcor2.logging import get_logger
 from arcor2_calibration.calibration import get_poses
+from arcor2_calibration.robot import calibrate_robot
 
 logger = get_logger(__name__)
 
@@ -44,7 +49,58 @@ def get_swagger() -> str:
     return json.dumps(spec.to_dict())
 
 
-@app.route("/calibration", methods=["PUT"])
+@app.route("/calibrate/robot", methods=["PUT"])
+def put_calibrate_robot() -> RETURN_TYPE:
+    """Get calibration (camera pose wrt. marker)
+    ---
+    put:
+        description: Get calibration
+        tags:
+           - Calibration
+        requestBody:
+              content:
+                multipart/form-data:
+                  schema:
+                    type: object
+                    required:
+                        - image
+                        - args
+                    properties:
+                      # 'image' will be the field name in this multipart request
+                      image:
+                        type: string
+                        format: binary
+                      args:
+                        $ref: "#/components/schemas/CalibrateRobotArgs"
+        responses:
+            200:
+              description: Ok
+              content:
+                application/json:
+                  schema:
+                    $ref: Pose
+
+    """
+
+    image = Image.open(request.files["image"].stream)
+    args = CalibrateRobotArgs.from_json(request.files["args"].read())
+
+    fn = "urdf.zip"
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path_to_zip = os.path.join(tmp_dir, fn)
+        rest.download(args.urdf_uri, path_to_zip)
+
+        with zipfile.ZipFile(path_to_zip, "r") as zip_ref:
+            zip_ref.extractall(tmp_dir)
+
+        pose = calibrate_robot(
+            args.robot_joints, args.robot_pose, args.camera_pose, args.camera_parameters, tmp_dir, image
+        )
+
+    return jsonify(pose.to_dict()), 200
+
+
+@app.route("/calibrate/camera", methods=["PUT"])
 def get_calibration() -> RETURN_TYPE:
     """Get calibration (camera pose wrt. marker)
     ---
@@ -134,9 +190,11 @@ def get_calibration() -> RETURN_TYPE:
 
 
 with app.test_request_context():
+    spec.path(view=put_calibrate_robot)
     spec.path(view=get_calibration)
 
 spec.components.schema(Pose.__name__, schema=Pose)
+spec.components.schema(CalibrateRobotArgs.__name__, schema=CalibrateRobotArgs)
 
 
 def main() -> None:

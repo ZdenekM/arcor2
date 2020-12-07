@@ -1,7 +1,7 @@
-import numpy as np
 from dataclasses import dataclass
 from typing import List
 
+import numpy as np
 from dataclasses_jsonschema import JsonSchemaMixin
 
 from arcor2.exceptions import Arcor2Exception
@@ -23,8 +23,10 @@ class CameraParameters(JsonSchemaMixin):
 
     def as_camera_matrix(self) -> np.array:
 
-        return np.array([
-            [self.fx, 0.00000, self.cx],
-            [0.00000, self.fy, self.cy],
-            [0.00000, 0.00000, 1],
-        ])
+        return np.array(
+            [
+                [self.fx, 0.00000, self.cx],
+                [0.00000, self.fy, self.cy],
+                [0.00000, 0.00000, 1],
+            ]
+        )

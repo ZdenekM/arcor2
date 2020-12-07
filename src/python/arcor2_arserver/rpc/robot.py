@@ -2,14 +2,21 @@ import asyncio
 import time
 from typing import Awaitable, Callable, Dict
 
+from arcor2_calibration_data import client as calib_client
+from arcor2_calibration_data.client import CalibrateRobotArgs
 from websockets.server import WebSocketServerProtocol as WsClient
 
 from arcor2 import transformations as tr
 from arcor2 import ws_server
+from arcor2.clients.persistent_storage import URL as ps_url
 from arcor2.data import common
+from arcor2.data.events import Event
 from arcor2.exceptions import Arcor2Exception
-from arcor2.object_types.abstract import Robot
+from arcor2.helpers import run_in_executor
+from arcor2.object_types.abstract import Camera, Robot
+from arcor2_arserver import camera
 from arcor2_arserver import globals as glob
+from arcor2_arserver import notifications as notif
 from arcor2_arserver import objects_actions as osa
 from arcor2_arserver import robot
 from arcor2_arserver.decorators import project_needed, scene_needed
@@ -315,3 +322,61 @@ async def fk_cb(req: srpc.r.ForwardKinematics.Request, ui: WsClient) -> srpc.r.F
     resp = srpc.r.ForwardKinematics.Response()
     resp.data = pose
     return resp
+
+
+async def calibrate_robot(robot_inst: Robot, camera_inst: Camera) -> None:
+
+    assert glob.SCENE
+
+    # TODO send event
+
+    try:
+
+        # await run_in_executor(robot_inst.move_to_calibration_pose) TODO some problem here!!!!
+        robot_joints = await run_in_executor(robot_inst.robot_joints)
+        depth_image = await run_in_executor(camera_inst.depth_image, 128)
+
+        args = CalibrateRobotArgs(
+                robot_joints,
+                robot_inst.pose,
+                camera_inst.pose,
+                camera_inst.color_camera_params,
+                f"{ps_url}/models/{robot_inst.urdf_package_name}/mesh/file",
+            )
+
+        new_pose = await run_in_executor(calib_client.calibrate_robot, args, depth_image)
+
+        scene_robot = glob.SCENE.object(robot_inst.id)
+        robot_inst.pose = new_pose
+        scene_robot.pose = new_pose
+
+        glob.SCENE.update_modified()
+
+        evt = sevts.s.SceneObjectChanged(scene_robot)
+        evt.change_type = Event.Type.UPDATE
+        asyncio.ensure_future(notif.broadcast_event(evt))
+
+        # TODO handle this
+        # OBJECTS_WITH_UPDATED_POSE.add(obj.id)
+
+        # TODO send event
+        return
+    except Arcor2Exception as e:
+        # TODO send event
+        glob.logger.exception("Failed to calibrate robot.")
+        pass
+
+
+@scene_needed
+async def calibrate_robot_cb(req: srpc.r.CalibrateRobot.Request, ui: WsClient) -> None:
+
+    ensure_scene_started()
+    robot_inst = await osa.get_robot_instance(req.args.robot_id)
+
+    if not robot_inst.urdf_package_name:
+        raise Arcor2Exception("Robot with model required!")
+
+    # TODO check camera features / check that it supports depth
+    asyncio.ensure_future(calibrate_robot(robot_inst, camera.get_camera_instance(req.args.camera_id)))
+
+    return None

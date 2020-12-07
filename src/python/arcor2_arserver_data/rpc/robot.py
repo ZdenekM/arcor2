@@ -243,3 +243,21 @@ class ForwardKinematics(RPC):
     @dataclass
     class Response(RPC.Response):
         data: Optional[Pose] = None
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+class CalibrateRobot(RPC):
+    @dataclass
+    class Request(RPC.Request):
+        @dataclass
+        class Args(JsonSchemaMixin):
+            robot_id: str
+            camera_id: str
+
+        args: Args
+
+    @dataclass
+    class Response(RPC.Response):
+        pass

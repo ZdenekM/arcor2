@@ -6,23 +6,13 @@ from websockets.server import WebSocketServerProtocol as WsClient
 from arcor2.data.events import Event
 from arcor2.exceptions import Arcor2Exception
 from arcor2.image import image_to_str
-from arcor2.object_types.abstract import Camera
 from arcor2_arserver import globals as glob
 from arcor2_arserver import notifications as notif
+from arcor2_arserver.camera import get_camera_instance
 from arcor2_arserver.decorators import scene_needed
-from arcor2_arserver.scene import ensure_scene_started, get_instance, set_object_pose
+from arcor2_arserver.scene import ensure_scene_started, set_object_pose
 from arcor2_arserver_data.events.scene import SceneObjectChanged
 from arcor2_arserver_data.rpc.camera import CalibrateCamera, CameraColorImage, CameraColorParameters
-
-
-def get_camera_instance(obj_id: str) -> Camera:
-
-    obj = get_instance(obj_id)
-
-    if not isinstance(obj, Camera):
-        raise Arcor2Exception("Not a camera.")
-
-    return obj
 
 
 @scene_needed

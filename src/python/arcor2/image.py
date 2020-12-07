@@ -2,9 +2,9 @@ import io
 import json
 from typing import Optional
 
-import PIL.Image
-import numpy as np
 import cv2
+import numpy as np
+import PIL.Image
 from PIL.Image import Image
 
 ENCODING = "latin-1"

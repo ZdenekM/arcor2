@@ -1,12 +1,12 @@
 import math
 import uuid
-import numpy as np
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum, unique
 from json import JSONEncoder
 from typing import Any, ClassVar, Iterator, List, NamedTuple, Optional, Set, cast
 
+import numpy as np
 import quaternion
 from dataclasses_jsonschema import JsonSchemaMixin
 
@@ -132,8 +132,8 @@ class Orientation(IterableIndexable):
         self.w = nq.w
 
     def as_transformation_matrix(self) -> np.array:
-        """
-        Returns 4x4 transformation matrix.
+        """Returns 4x4 transformation matrix.
+
         :return:
         """
 
