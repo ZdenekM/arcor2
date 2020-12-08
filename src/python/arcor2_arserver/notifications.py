@@ -8,11 +8,6 @@ from arcor2.data import events
 from arcor2_arserver import globals as glob
 
 
-def delayed_broadcast(event: events.Event, exclude_ui: Optional[WebSocketServerProtocol] = None) -> None:
-
-    asyncio.ensure_future(broadcast_event(event, exclude_ui))
-
-
 async def broadcast_event(event: events.Event, exclude_ui: Optional[WebSocketServerProtocol] = None) -> None:
 
     if (exclude_ui is None and glob.INTERFACES) or (exclude_ui and len(glob.INTERFACES) > 1):

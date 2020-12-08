@@ -1,7 +1,4 @@
 import copy
-import os
-import shutil
-import tempfile
 from typing import List
 
 import cv2
@@ -12,9 +9,14 @@ from urdfpy import URDF
 
 from arcor2.data.camera import CameraParameters
 from arcor2.data.common import Joint, Pose
+from arcor2.exceptions import Arcor2Exception
 from arcor2.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class RobotCalibrationException(Arcor2Exception):
+    pass
 
 
 def depth_image_to_np(depth: Image.Image) -> np.array:
@@ -44,127 +46,99 @@ def calibrate_robot(
     robot_pose: Pose,
     camera_pose: Pose,
     camera_parameters: CameraParameters,
-    path_to_urdf: str,
+    robot: URDF,
     depth_image: Image,
     draw_results: bool = False,
 ) -> Pose:
 
-    logger.info("Processing URDF package...")
+    logger.info("Creating robot model...")
 
-    # TODO this part is probably not general enough (tested on Dobot Magician)
-    with tempfile.TemporaryDirectory() as temp_dir:
+    fk = robot.visual_trimesh_fk(cfg={joint.name: joint.value for joint in robot_joints})
 
-        target = os.path.join(temp_dir, "urdf")
+    robot_tr_matrix = robot_pose.as_transformation_matrix()
 
-        shutil.copytree(path_to_urdf, target)
+    res_mesh = o3d.geometry.TriangleMesh()
 
-        for dname, _, files in os.walk(target):
-            for fname in files:
-
-                _, ext = os.path.splitext(fname)
-
-                if ext not in (".urdf", ".xml"):
-                    continue
-
-                fpath = os.path.join(dname, fname)
-                with open(fpath) as f:
-                    s = f.read()
-                s = s.replace("package://", "")
-                with open(fpath, "w") as f:
-                    f.write(s)
-
-        robot = URDF.load(f"{target}/dobot_magician.xml")
-
-        logger.info("Creating robot model...")
-
-        cfg = {joint.name: joint.value for joint in robot_joints}
-
-        fk = robot.visual_trimesh_fk(cfg=cfg)
-
-        robot_tr_matrix = robot_pose.as_transformation_matrix()
-
-        res_mesh = o3d.geometry.TriangleMesh()
-
-        for tm in fk:
-            pose = fk[tm]
-            mesh = o3d.geometry.TriangleMesh(
-                vertices=o3d.utility.Vector3dVector(tm.vertices), triangles=o3d.utility.Vector3iVector(tm.faces)
-            )
-            mesh.transform(np.dot(robot_tr_matrix, pose))
-            mesh.compute_triangle_normals()
-            mesh.compute_vertex_normals()
-            res_mesh += mesh
-
-        mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
-
-        sim_pcd = res_mesh.sample_points_uniformly(int(1e5))
-
-        camera_tr_matrix = camera_pose.as_transformation_matrix()
-        camera_matrix = camera_parameters.as_camera_matrix()
-        depth = depth_image_to_np(depth_image)
-
-        wh = (depth_image.width, depth_image.height)
-
-        dist = np.array(camera_parameters.dist_coefs)
-        newcameramtx, _ = cv2.getOptimalNewCameraMatrix(camera_matrix, dist, wh, 1, wh)
-        depth = cv2.undistort(depth, camera_matrix, dist, None, newcameramtx)
-
-        real_pcd = o3d.geometry.PointCloud.create_from_depth_image(
-            o3d.geometry.Image(depth),
-            o3d.camera.PinholeCameraIntrinsic(
-                depth_image.width,
-                depth_image.height,
-                camera_parameters.fx,
-                camera_parameters.fy,
-                camera_parameters.cx,
-                camera_parameters.cy,
-            ),
+    for tm in fk:
+        pose = fk[tm]
+        mesh = o3d.geometry.TriangleMesh(
+            vertices=o3d.utility.Vector3dVector(tm.vertices), triangles=o3d.utility.Vector3iVector(tm.faces)
         )
+        mesh.transform(np.dot(robot_tr_matrix, pose))
+        mesh.compute_vertex_normals()
+        res_mesh += mesh
 
-        real_pcd.transform(camera_tr_matrix)
+    mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
 
-        bb = sim_pcd.get_axis_aligned_bounding_box()
-        real_pcd = real_pcd.crop(bb.scale(1.25, bb.get_center()))
+    sim_pcd = res_mesh.sample_points_uniformly(int(1e5))
 
-        logger.info("Outlier removal...")
-        real_pcd = real_pcd.remove_radius_outlier(nb_points=50, radius=0.01)[0]
+    camera_tr_matrix = camera_pose.as_transformation_matrix()
+    camera_matrix = camera_parameters.as_camera_matrix()
+    depth = depth_image_to_np(depth_image)
 
-        sim_pcd = sim_pcd.select_by_index(sim_pcd.hidden_point_removal(np.array(list(camera_pose.position)), 500)[1])
+    wh = (depth_image.width, depth_image.height)
 
-        print("Estimating normals...")
-        real_pcd.estimate_normals()
+    dist = np.array(camera_parameters.dist_coefs)
+    newcameramtx, _ = cv2.getOptimalNewCameraMatrix(camera_matrix, dist, wh, 1, wh)
+    depth = cv2.undistort(depth, camera_matrix, dist, None, newcameramtx)
 
-        if draw_results:
-            o3d.visualization.draw_geometries([sim_pcd, real_pcd, mesh_frame])
+    real_pcd = o3d.geometry.PointCloud.create_from_depth_image(
+        o3d.geometry.Image(depth),
+        o3d.camera.PinholeCameraIntrinsic(
+            depth_image.width,
+            depth_image.height,
+            camera_parameters.fx,
+            camera_parameters.fy,
+            camera_parameters.cx,
+            camera_parameters.cy,
+        ),
+    )
 
-        threshold = 1.0
-        trans_init = np.identity(4)
+    real_pcd.transform(camera_tr_matrix)
 
-        logger.info("Applying point-to-plane robust ICP...")
+    bb = sim_pcd.get_axis_aligned_bounding_box()
+    real_pcd = real_pcd.crop(bb.scale(1.25, bb.get_center()))
 
-        loss = o3d.pipelines.registration.TukeyLoss(k=0.25)
+    logger.info("Outlier removal...")
+    real_pcd = real_pcd.remove_radius_outlier(nb_points=50, radius=0.01)[0]
 
-        p2l = o3d.pipelines.registration.TransformationEstimationPointToPlane(loss)
-        reg_p2p = o3d.pipelines.registration.registration_icp(
-            sim_pcd,
-            real_pcd,
-            threshold,
-            trans_init,
-            p2l,
-            o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=1000),
-        )
+    sim_pcd = sim_pcd.select_by_index(sim_pcd.hidden_point_removal(np.array(list(camera_pose.position)), 500)[1])
 
-        logger.debug(reg_p2p)
-        logger.debug(reg_p2p.transformation)
+    print("Estimating normals...")
+    real_pcd.estimate_normals()
 
-        # TODO raise exception in case of low fitness
+    if draw_results:
+        o3d.visualization.draw_geometries([sim_pcd, real_pcd, mesh_frame])
 
-        if draw_results:
-            draw_registration_result(sim_pcd, real_pcd, trans_init, reg_p2p.transformation)
+    threshold = 1.0
+    trans_init = np.identity(4)
 
-        robot_tr_matrix = np.dot(reg_p2p.transformation, robot_tr_matrix)
-        pose = Pose.from_transformation_matrix(robot_tr_matrix)
+    logger.info("Applying point-to-plane robust ICP...")
 
-        logger.info("Done")
+    loss = o3d.pipelines.registration.TukeyLoss(k=0.25)
 
-        return pose
+    p2l = o3d.pipelines.registration.TransformationEstimationPointToPlane(loss)
+    reg_p2p = o3d.pipelines.registration.registration_icp(
+        sim_pcd,
+        real_pcd,
+        threshold,
+        trans_init,
+        p2l,
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=1000),
+    )
+
+    logger.debug(reg_p2p)
+    logger.debug(reg_p2p.transformation)
+
+    if reg_p2p.fitness < 0.75:
+        raise RobotCalibrationException("Robot calibration not precise enough.")
+
+    if draw_results:
+        draw_registration_result(sim_pcd, real_pcd, trans_init, reg_p2p.transformation)
+
+    robot_tr_matrix = np.dot(reg_p2p.transformation, robot_tr_matrix)
+    pose = Pose.from_transformation_matrix(robot_tr_matrix)
+
+    logger.info("Done")
+
+    return pose

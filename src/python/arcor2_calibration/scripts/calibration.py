@@ -3,8 +3,6 @@
 import argparse
 import json
 import os
-import tempfile
-import zipfile
 from typing import Tuple, Union
 
 from apispec import APISpec
@@ -18,10 +16,10 @@ from flask_swagger_ui import get_swaggerui_blueprint
 from PIL import Image
 
 import arcor2_calibration
-from arcor2 import rest
 from arcor2.data.common import Pose
 from arcor2.helpers import port_from_url
 from arcor2.logging import get_logger
+from arcor2.urdf import urdf_from_url
 from arcor2_calibration.calibration import get_poses
 from arcor2_calibration.robot import calibrate_robot
 
@@ -85,17 +83,14 @@ def put_calibrate_robot() -> RETURN_TYPE:
     image = Image.open(request.files["image"].stream)
     args = CalibrateRobotArgs.from_json(request.files["args"].read())
 
-    fn = "urdf.zip"
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        path_to_zip = os.path.join(tmp_dir, fn)
-        rest.download(args.urdf_uri, path_to_zip)
-
-        with zipfile.ZipFile(path_to_zip, "r") as zip_ref:
-            zip_ref.extractall(tmp_dir)
-
-        pose = calibrate_robot(
-            args.robot_joints, args.robot_pose, args.camera_pose, args.camera_parameters, tmp_dir, image
-        )
+    pose = calibrate_robot(
+        args.robot_joints,
+        args.robot_pose,
+        args.camera_pose,
+        args.camera_parameters,
+        urdf_from_url(args.urdf_uri),
+        image,
+    )
 
     return jsonify(pose.to_dict()), 200
 

@@ -46,5 +46,5 @@ def calibrate_robot(args: CalibrateRobotArgs, depth_image: Image) -> Pose:
             f"{CALIBRATION_URL}/calibrate/robot",
             return_type=Pose,
             files={"image": buff.getvalue(), "args": args.to_json()},
-            timeout=rest.Timeout(3.05, 240)
+            timeout=rest.Timeout(3.05, 240),
         )
