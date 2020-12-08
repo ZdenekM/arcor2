@@ -95,3 +95,21 @@ class RobotMoveToActionPointJoints(Event):
         message: Optional[str] = None
 
     data: Data
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+@dataclass
+class RobotCalibration(Event):
+    @dataclass
+    class Data(JsonSchemaMixin):
+        class StateEnum(common.StrEnum):
+            Started: str = "started"
+            Succeeded: str = "succeeded"
+            Failed: str = "failed"
+
+        state: StateEnum
+        message: Optional[str] = None
+
+    data: Data

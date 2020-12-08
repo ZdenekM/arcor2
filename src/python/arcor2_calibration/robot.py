@@ -156,6 +156,9 @@ def calibrate_robot(
 
         logger.debug(reg_p2p)
         logger.debug(reg_p2p.transformation)
+
+        # TODO raise exception in case of low fitness
+
         if draw_results:
             draw_registration_result(sim_pcd, real_pcd, trans_init, reg_p2p.transformation)
 
