@@ -136,7 +136,6 @@ def get_calibration() -> RETURN_TYPE:
               name: distCoefs
               schema:
                 type: array
-                collectionFormat: multi
                 items:
                     type: number
                     format: float
