@@ -22,9 +22,9 @@ from arcor2_arserver.helpers import unique_name
 from arcor2_arserver.objects_actions import get_object_types
 from arcor2_arserver.project import (
     associated_projects,
+    invalidate_joints_using_object_as_parent,
     projects_using_object,
     remove_object_references_from_projects,
-    scene_object_pose_updated,
 )
 from arcor2_arserver.robot import get_end_effector_pose
 from arcor2_arserver.scene import (
@@ -40,6 +40,7 @@ from arcor2_arserver.scene import (
     scenes,
     start_scene,
     stop_scene,
+    update_scene_object_pose,
 )
 from arcor2_arserver_data import events as sevts
 from arcor2_arserver_data import rpc as srpc
@@ -131,7 +132,7 @@ async def save_scene_cb(req: srpc.s.SaveScene.Request, ui: WsClient) -> None:
     glob.SCENE.modified = await storage.update_scene(glob.SCENE.scene)
     asyncio.ensure_future(notif.broadcast_event(sevts.s.SceneSaved()))
     for obj_id in glob.OBJECTS_WITH_UPDATED_POSE:
-        asyncio.ensure_future(scene_object_pose_updated(glob.SCENE.id, obj_id))
+        asyncio.ensure_future(invalidate_joints_using_object_as_parent(glob.SCENE.object(obj_id)))
     glob.OBJECTS_WITH_UPDATED_POSE.clear()
     return None
 
@@ -305,6 +306,7 @@ async def remove_from_scene_cb(req: srpc.s.RemoveFromScene.Request, ui: WsClient
     evt.change_type = Event.Type.REMOVE
     asyncio.ensure_future(notif.broadcast_event(evt))
 
+    # TODO this should be done after scene is saved
     asyncio.ensure_future(remove_object_references_from_projects(req.args.id))
     return None
 
@@ -375,14 +377,7 @@ async def update_object_pose_using_robot_cb(req: srpc.o.UpdateObjectPoseUsingRob
         new_pose.orientation.as_quaternion() * quaternion.quaternion(0, 1, 0, 0)
     )
 
-    glob.SCENE.update_modified()
-
-    evt = sevts.s.SceneObjectChanged(scene_object)
-    evt.change_type = Event.Type.UPDATE
-    asyncio.ensure_future(notif.broadcast_event(evt))
-
-    glob.OBJECTS_WITH_UPDATED_POSE.add(scene_object.id)
-
+    asyncio.ensure_future(update_scene_object_pose(scene_object))
     return None
 
 
@@ -402,16 +397,7 @@ async def update_object_pose_cb(req: srpc.s.UpdateObjectPose.Request, ui: WsClie
     if req.dry_run:
         return
 
-    obj.pose = req.args.pose
-
-    glob.SCENE.update_modified()
-
-    evt = sevts.s.SceneObjectChanged(obj)
-    evt.change_type = Event.Type.UPDATE
-    asyncio.ensure_future(notif.broadcast_event(evt))
-
-    glob.OBJECTS_WITH_UPDATED_POSE.add(obj.id)
-
+    asyncio.ensure_future(update_scene_object_pose(obj, req.args.pose))
     return None
 
 

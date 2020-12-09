@@ -10,7 +10,6 @@ from arcor2 import transformations as tr
 from arcor2 import ws_server
 from arcor2.clients.persistent_storage import URL as ps_url
 from arcor2.data import common
-from arcor2.data.events import Event
 from arcor2.exceptions import Arcor2Exception
 from arcor2.helpers import run_in_executor
 from arcor2.object_types.abstract import Camera, Robot
@@ -20,7 +19,7 @@ from arcor2_arserver import notifications as notif
 from arcor2_arserver import objects_actions as osa
 from arcor2_arserver import robot
 from arcor2_arserver.decorators import project_needed, scene_needed
-from arcor2_arserver.scene import ensure_scene_started, scene_started
+from arcor2_arserver.scene import ensure_scene_started, scene_started, update_scene_object_pose
 from arcor2_arserver_data import events as sevts
 from arcor2_arserver_data import rpc as srpc
 from arcor2_arserver_data.events.robot import RobotCalibration
@@ -349,17 +348,7 @@ async def calibrate_robot(robot_inst: Robot, camera_inst: Camera) -> None:
         )
 
         new_pose = await run_in_executor(calib_client.calibrate_robot, args, depth_image)
-
-        scene_robot = glob.SCENE.object(robot_inst.id)
-        robot_inst.pose = new_pose
-        scene_robot.pose = new_pose
-
-        glob.SCENE.update_modified()
-
-        evt = sevts.s.SceneObjectChanged(scene_robot)
-        evt.change_type = Event.Type.UPDATE
-        asyncio.ensure_future(notif.broadcast_event(evt))
-        glob.OBJECTS_WITH_UPDATED_POSE.add(robot_inst.id)
+        asyncio.ensure_future(update_scene_object_pose(glob.SCENE.object(robot_inst.id), new_pose, robot_inst))
 
         await notif.broadcast_event(RobotCalibration(RobotCalibration.Data(RobotCalibration.Data.StateEnum.Succeeded)))
 

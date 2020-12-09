@@ -3,15 +3,14 @@ import asyncio
 from arcor2_calibration_data import client as calib_client
 from websockets.server import WebSocketServerProtocol as WsClient
 
-from arcor2.data.events import Event
 from arcor2.exceptions import Arcor2Exception
+from arcor2.helpers import run_in_executor
 from arcor2.image import image_to_str
+from arcor2.object_types.abstract import Camera
 from arcor2_arserver import globals as glob
-from arcor2_arserver import notifications as notif
 from arcor2_arserver.camera import get_camera_instance
 from arcor2_arserver.decorators import scene_needed
-from arcor2_arserver.scene import ensure_scene_started, set_object_pose
-from arcor2_arserver_data.events.scene import SceneObjectChanged
+from arcor2_arserver.scene import ensure_scene_started, update_scene_object_pose
 from arcor2_arserver_data.rpc.camera import CalibrateCamera, CameraColorImage, CameraColorParameters
 
 
@@ -41,6 +40,16 @@ async def camera_color_parameters_cb(
     return resp
 
 
+async def calibrate_camera(camera: Camera) -> None:
+
+    assert camera.color_camera_params
+    assert glob.SCENE
+
+    img = await run_in_executor(camera.color_image)
+    pose = await run_in_executor(calib_client.estimate_camera_pose, camera.color_camera_params, img)
+    await update_scene_object_pose(glob.SCENE.object(camera.id), pose, camera)
+
+
 @scene_needed
 async def calibrate_camera_cb(req: CalibrateCamera.Request, ui: WsClient) -> None:
 
@@ -49,22 +58,8 @@ async def calibrate_camera_cb(req: CalibrateCamera.Request, ui: WsClient) -> Non
     ensure_scene_started()
     camera = get_camera_instance(req.args.id)
 
-    try:
-        img = camera.color_image()
-    except NotImplementedError as e:
-        raise Arcor2Exception("Camera does not support getting color images.") from e
-
+    # TODO check camera features / meta if it supports getting color image
     if not camera.color_camera_params:
         raise Arcor2Exception("Camera parameters not available.")
 
-    pose = calib_client.estimate_camera_pose(camera.color_camera_params, img)
-
-    asyncio.ensure_future(set_object_pose(camera, pose))
-
-    scene_obj = glob.SCENE.object(req.args.id)
-    scene_obj.pose = pose
-    glob.SCENE.update_modified()
-
-    evt = SceneObjectChanged(scene_obj)
-    evt.change_type = Event.Type.UPDATE
-    asyncio.ensure_future(notif.broadcast_event(evt))
+    asyncio.ensure_future(calibrate_camera(camera))

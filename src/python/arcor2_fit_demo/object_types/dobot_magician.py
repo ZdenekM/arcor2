@@ -52,7 +52,7 @@ class DobotMagician(AbstractDobot):
             Joint(Joints.J5, 1.41726),
         ]
 
-        self.move(self.forward_kinematics("", joint_values), MoveType.LINEAR, 0.5)
+        self.move(self.forward_kinematics("", joint_values), MoveType.LINEAR, 50)
 
     def _handle_pose_in(self, pose: Pose) -> None:
 

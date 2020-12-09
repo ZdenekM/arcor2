@@ -99,8 +99,8 @@ def calibrate_robot(
     bb = sim_pcd.get_axis_aligned_bounding_box()
     real_pcd = real_pcd.crop(bb.scale(1.25, bb.get_center()))
 
-    logger.info("Outlier removal...")
-    real_pcd = real_pcd.remove_radius_outlier(nb_points=50, radius=0.01)[0]
+    # logger.info("Outlier removal...")
+    # real_pcd = real_pcd.remove_radius_outlier(nb_points=50, radius=0.01)[0]
 
     sim_pcd = sim_pcd.select_by_index(sim_pcd.hidden_point_removal(np.array(list(camera_pose.position)), 500)[1])
 
@@ -113,6 +113,17 @@ def calibrate_robot(
     threshold = 1.0
     trans_init = np.identity(4)
 
+    """
+    evaluation = o3d.pipelines.registration.evaluate_registration(
+        sim_pcd,
+        real_pcd,
+        threshold,
+        trans_init,
+    )
+
+    logger.info(evaluation)
+    """
+
     logger.info("Applying point-to-plane robust ICP...")
 
     loss = o3d.pipelines.registration.TukeyLoss(k=0.25)
@@ -124,14 +135,13 @@ def calibrate_robot(
         threshold,
         trans_init,
         p2l,
-        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=1000),
+        o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=100),
     )
 
-    logger.debug(reg_p2p)
+    logger.info(reg_p2p)
     logger.debug(reg_p2p.transformation)
 
-    if reg_p2p.fitness < 0.75:
-        raise RobotCalibrationException("Robot calibration not precise enough.")
+    # TODO somehow check if calibration is ok
 
     if draw_results:
         draw_registration_result(sim_pcd, real_pcd, trans_init, reg_p2p.transformation)
