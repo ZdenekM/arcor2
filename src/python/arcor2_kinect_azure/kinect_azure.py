@@ -136,8 +136,17 @@ class KinectAzure:
 
     def depth_image(self, averaged_frames: int = 1) -> Image.Image:
 
+        if averaged_frames < 1:
+            raise ValueError("averaged_frames has to be >= 1")
+
         img = self._depth_image()
+
+        if averaged_frames == 1:
+            return Image.fromarray(img)
+
         array = img.astype(np.float32)
+
+        averaged_frames -= 1
 
         for _ in range(averaged_frames):
             array += self._depth_image().astype(np.float32)
