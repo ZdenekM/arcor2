@@ -9,7 +9,7 @@ def main() -> None:
     kinect = KinectAzure("", "", Pose())
     print(kinect.color_camera_params)
     assert kinect.color_camera_params
-    print(calib_client.estimate_camera_pose(kinect.color_camera_params, kinect.color_image()))
+    print(calib_client.estimate_camera_pose(kinect.color_camera_params, kinect.color_image("")))
 
 
 if __name__ == "__main__":

@@ -32,8 +32,10 @@ RUNNING_ACTION_PARAMS: Optional[Dict[str, Any]] = None
 
 PACKAGE_STATE = events.PackageState.Data()
 PACKAGE_INFO: Optional[events.PackageInfo.Data] = None
-ACTION_STATE: Optional[events.ActionState.Data] = None
-CURRENT_ACTION: Optional[events.CurrentAction.Data] = None
+
+# there might be some long-running action being executed when ui connects, so let's them know
+ACTION_STATE_BEFORE: Optional[events.ActionStateBefore.Data] = None
+
 TEMPORARY_PACKAGE: bool = False
 
 RegisteredUiDict = DefaultDict[str, Set[WsClient]]

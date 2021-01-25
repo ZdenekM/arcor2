@@ -39,7 +39,7 @@ class Interaction(AbstractSimple):
 
     # --- Dialog Controller --------------------------------------------------------------------------------------------
 
-    def add_dialog(self, title: str, content: str, options: List[str]) -> str:
+    def add_dialog(self, action_name: str, title: str, content: str, options: List[str]) -> str:
         """Creates dialog, block until operator selects one of the options.
 
         :param title: Dialog title
@@ -57,7 +57,7 @@ class Interaction(AbstractSimple):
             timeout=rest.Timeout(read=8 * 60 * 60),
         )
 
-    def get_dialog(self) -> DialogValue:
+    def get_dialog(self, action_name: str) -> DialogValue:
         """Returns active dialog (title and options) or error if no dialog is
         active.
 
@@ -66,7 +66,7 @@ class Interaction(AbstractSimple):
 
         return rest.call(rest.Method.GET, f"{self.settings.url}/dialog", return_type=DialogValue)
 
-    def resolve_dialog(self, option: str) -> None:
+    def resolve_dialog(self, action_name: str, option: str) -> None:
         """Resolves current dialog using one of the options.
 
         :param option:
@@ -77,7 +77,7 @@ class Interaction(AbstractSimple):
 
     # --- Notification Controller --------------------------------------------------------------------------------------
 
-    def add_notification(self, message: str, level: NotificationLevelEnum) -> None:
+    def add_notification(self, action_name: str, message: str, level: NotificationLevelEnum) -> None:
         """Creates notification.
 
         :param message:
@@ -87,7 +87,7 @@ class Interaction(AbstractSimple):
 
         rest.call(rest.Method.PUT, f"{self.settings.url}/notification", params={"message": message, "level": level})
 
-    def delete_notifications(self) -> None:
+    def delete_notifications(self, action_name: str) -> None:
         """Clears all notifications.
 
         :return:
@@ -95,7 +95,7 @@ class Interaction(AbstractSimple):
 
         rest.call(rest.Method.DELETE, f"{self.settings.url}/notifications")
 
-    def get_notifications(self, since_timestamp: int) -> List[NotificationValue]:
+    def get_notifications(self, action_name: str, since_timestamp: int) -> List[NotificationValue]:
         """Gets all notifications stored after given timestamp.
 
         :param since_timestamp: UNIX timestamp in nanoseconds, after which created notifications are returned.

@@ -9,7 +9,7 @@ class Barcode(AbstractWithPose):
 
     _ABSTRACT = False
 
-    def scan(self) -> str:
+    def scan(self, action_name: str) -> str:
         """Gets scan from active scanner.
 
         :return:

@@ -21,7 +21,7 @@ class Statistic(AbstractSimple):
 
     _ABSTRACT = False
 
-    def get_names(self, group_id: str) -> List[str]:
+    def get_names(self, action_name: str, group_id: str) -> List[str]:
         """Gets names of all tracked values stored in given group.
 
         :param group_id:
@@ -29,7 +29,7 @@ class Statistic(AbstractSimple):
         """
         return rest.call(rest.Method.GET, f"{self.settings.url}/values/{group_id}", list_return_type=str)
 
-    def add_value(self, group_id: str, name: str, value: float) -> None:
+    def add_value(self, action_name: str, group_id: str, name: str, value: float) -> None:
         """Logs value with the specified group and name.
 
         :param group_id:
@@ -42,7 +42,7 @@ class Statistic(AbstractSimple):
             rest.Method.PUT, f"{self.settings.url}/values", params={"group_id": group_id, "name": name, "value": value}
         )
 
-    def get_groups(self) -> List[str]:
+    def get_groups(self, action_name: str) -> List[str]:
         """Gets Ids of all stored groups.
 
         :param name:
@@ -51,7 +51,7 @@ class Statistic(AbstractSimple):
 
         return rest.call(rest.Method.GET, f"{self.settings.url}/values", list_return_type=str)
 
-    def get_values(self, group_id: str, name: str, since_timestamp: int = 0) -> List[StatisticValue]:
+    def get_values(self, action_name: str, group_id: str, name: str, since_timestamp: int = 0) -> List[StatisticValue]:
         """Gets tracked values with the specified name. Values are sorted as
         were added to service.
 
@@ -69,7 +69,7 @@ class Statistic(AbstractSimple):
             params={"since_timestamp": since_timestamp},
         )
 
-    def delete_group(self, group_id: str) -> None:
+    def delete_group(self, action_name: str, group_id: str) -> None:
         """Deletes all tracked values stored in given group.
 
         :param group_id:

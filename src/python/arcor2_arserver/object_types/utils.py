@@ -166,7 +166,12 @@ def object_actions(type_def: Type[Generic], tree: AST) -> Dict[str, ObjectAction
                 # function is probably defined in predecessor, will be added later
                 continue
 
-            for name, ttype in get_type_hints(method_def).items():
+            for idx, name, ttype in enumerate(get_type_hints(method_def).items()):
+
+                if idx == 0:
+                    if name == "action_name":
+                        continue
+                    raise IgnoreActionException(f"Missing 'action_name' parameter.")
 
                 if name == "return":
 

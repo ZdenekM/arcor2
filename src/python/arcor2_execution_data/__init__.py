@@ -28,8 +28,8 @@ EVENTS: Tuple[Type[arcor2_events.Event], ...] = (
     arcor2_events.PackageState,
     arcor2_events.PackageInfo,
     arcor2_events.ProjectException,
-    arcor2_events.CurrentAction,
-    arcor2_events.ActionState,
+    arcor2_events.ActionStateBefore,
+    arcor2_events.ActionStateAfter,
 )
 
 

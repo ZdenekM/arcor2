@@ -120,25 +120,6 @@ class PausePackage(RPC):
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-class PackageState(RPC):
-    @dataclass
-    class Request(RPC.Request):
-        pass
-
-    @dataclass
-    class Response(RPC.Response):
-        @dataclass
-        class Data(JsonSchemaMixin):
-            project: events.PackageState.Data
-            action: Optional[events.ActionState.Data] = None
-            action_args: Optional[events.CurrentAction.Data] = None
-
-        data: Optional[Data] = None
-
-
-# ----------------------------------------------------------------------------------------------------------------------
-
-
 class ResumePackage(RPC):
     @dataclass
     class Request(RPC.Request):

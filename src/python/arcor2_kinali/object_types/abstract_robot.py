@@ -66,7 +66,9 @@ class AbstractRobot(Robot):
     def grippers(self) -> Set[str]:
         return set(rest.call(rest.Method.GET, f"{self.settings.url}/grippers", list_return_type=str))
 
-    def grip(self, gripper_id: str, position: float = 0.0, speed: float = 0.5, force: float = 0.5) -> None:
+    def grip(
+        self, action_name: str, gripper_id: str, position: float = 0.0, speed: float = 0.5, force: float = 0.5
+    ) -> None:
 
         assert 0.0 <= position <= 1.0
         assert 0.0 <= speed <= 1.0
@@ -78,7 +80,7 @@ class AbstractRobot(Robot):
             params={"position": position, "speed": speed, "force": force},
         )
 
-    def set_opening(self, gripper_id: str, position: float = 1.0, speed: float = 0.5) -> None:
+    def set_opening(self, action_name: str, gripper_id: str, position: float = 1.0, speed: float = 0.5) -> None:
 
         assert 0.0 <= position <= 1.0
         assert 0.0 <= speed <= 1.0
@@ -89,11 +91,11 @@ class AbstractRobot(Robot):
             params={"position": position, "speed": speed},
         )
 
-    def get_gripper_opening(self, gripper_id: str) -> float:
+    def get_gripper_opening(self, action_name: str, gripper_id: str) -> float:
 
         return rest.call(rest.Method.GET, f"{self.settings.url}/grippers/{gripper_id}/opening", return_type=float)
 
-    def is_item_gripped(self, gripper_id: str) -> bool:
+    def is_item_gripped(self, action_name: str, gripper_id: str) -> bool:
         return rest.call(rest.Method.GET, f"{self.settings.url}/grippers/{gripper_id}/gripped", return_type=bool)
 
     # --- IOs Controller -----------------------------------------------------------------------------------------------
@@ -106,21 +108,22 @@ class AbstractRobot(Robot):
     def outputs(self) -> Set[str]:
         return set(rest.call(rest.Method.GET, f"{self.settings.url}/outputs", return_type=str))
 
-    def get_input(self, input_id: str) -> float:
+    def get_input(self, action_name: str, input_id: str) -> float:
         return rest.call(rest.Method.GET, f"{self.settings.url}/inputs/{input_id}", return_type=float)
 
-    def set_output(self, output_id: str, value: float) -> None:
+    def set_output(self, action_name: str, output_id: str, value: float) -> None:
 
         assert 0.0 <= value <= 1.0
         rest.call(rest.Method.PUT, f"{self.settings.url}/outputs/{output_id}", params={"value": value})
 
-    def get_output(self, output_id: str) -> float:
+    def get_output(self, action_name: str, output_id: str) -> float:
         return rest.call(rest.Method.GET, f"{self.settings.url}/outputs/{output_id}", return_type=float)
 
     # --- Joints Controller --------------------------------------------------------------------------------------------
 
     def set_joints(
         self,
+        action_name: str,
         joints: ProjectRobotJoints,
         move_type: MoveTypeEnum,
         speed: float = 0.5,
