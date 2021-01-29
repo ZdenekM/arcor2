@@ -58,16 +58,22 @@ class IntResources:
 
         for scene_obj in self.scene.objects:
 
-            if scene_obj.type in built_in:
-                module = importlib.import_module(arcor2.object_types.__name__ + "." + humps.depascalize(scene_obj.type))
-            else:
-                module = importlib.import_module(
-                    Resources.CUSTOM_OBJECT_TYPES_MODULE + "." + humps.depascalize(scene_obj.type)
-                )
+            if scene_obj.type not in self.type_defs:
 
-            cls = getattr(module, scene_obj.type)
-            patch_object_actions(cls, get_action_name_to_id(self.scene, self.project, cls.__name__))
-            self.type_defs[cls.__name__] = cls
+                if scene_obj.type in built_in:
+                    module = importlib.import_module(
+                        arcor2.object_types.__name__ + "." + humps.depascalize(scene_obj.type)
+                    )
+                else:
+                    module = importlib.import_module(
+                        Resources.CUSTOM_OBJECT_TYPES_MODULE + "." + humps.depascalize(scene_obj.type)
+                    )
+
+                cls = getattr(module, scene_obj.type)
+                patch_object_actions(cls, get_action_name_to_id(self.scene, self.project, cls.__name__))
+                self.type_defs[cls.__name__] = cls
+            else:
+                cls = self.type_defs[scene_obj.type]
 
             assert scene_obj.id not in self.objects, "Duplicate object id {}!".format(scene_obj.id)
 
