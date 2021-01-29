@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import List, Optional
 
 import pytest
 
@@ -15,11 +15,17 @@ from arcor2.data.common import (
     Scene,
     SceneObject,
 )
+from arcor2.object_types.abstract import Generic
 from arcor2.source import SourceException
 from arcor2.source.utils import parse
 from arcor2_build.source.logic import program_src
 
 TAB = 4
+
+
+class Test(Generic):
+    def test(self, *, an: Optional[str] = None):
+        pass
 
 
 def subs_index(spl: List[str], subs: str) -> int:
@@ -51,7 +57,7 @@ def cntsp(a: str) -> int:
 def test_blind_branch() -> None:
 
     scene = Scene("s1", "s1")
-    scene.objects.append(SceneObject("TestId", "test_name", "Test"))
+    scene.objects.append(SceneObject("TestId", "test_name", Test.__name__))
     project = Project("p1", "p1", "s1")
     ap1 = ActionPoint("ap1", "ap1", Position())
     project.action_points.append(ap1)
@@ -71,7 +77,7 @@ def test_blind_branch() -> None:
     project.logic.append(LogicItem("l6", "ac4", LogicItem.END))
 
     with pytest.raises(SourceException, match="Action ac3 has no outputs."):
-        program_src(CachedProject(project), CachedScene(scene), set())
+        program_src({Test.__name__: Test}, CachedProject(project), CachedScene(scene))
 
 
 @pytest.mark.repeat(10)
@@ -98,7 +104,7 @@ def test_branched_output() -> None:
     project.logic.append(LogicItem("l5", "ac3", "ac4"))
     project.logic.append(LogicItem("l6", "ac4", LogicItem.END))
 
-    src = program_src(CachedProject(project), CachedScene(scene), set())
+    src = program_src({Test.__name__: Test}, CachedProject(project), CachedScene(scene))
     parse(src)
 
     """
@@ -136,7 +142,7 @@ def test_branched_output() -> None:
 def test_branched_output_2() -> None:
 
     scene = Scene("s1", "s1")
-    scene.objects.append(SceneObject("TestId", "test_name", "Test"))
+    scene.objects.append(SceneObject("TestId", "test_name", Test.__name__))
     project = Project("p1", "p1", "s1")
     ap1 = ActionPoint("ap1", "ap1", Position())
     project.action_points.append(ap1)
@@ -165,7 +171,7 @@ def test_branched_output_2() -> None:
 
     project.logic.append(LogicItem("l9", "ac4", LogicItem.END, ProjectLogicIf("ac4/default/0", json.dumps(False))))
 
-    src = program_src(CachedProject(project), CachedScene(scene), set())
+    src = program_src({Test.__name__: Test}, CachedProject(project), CachedScene(scene))
     parse(src)
 
     """

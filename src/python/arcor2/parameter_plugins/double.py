@@ -36,7 +36,7 @@ class DoublePlugin(ParameterPlugin):
         return super(DoublePlugin, cls)._value_from_json(value)
 
     @classmethod
-    def parameter_stmt(
+    def parameter_ast(
         cls, type_defs: TypesDict, scene: CScene, project: CProject, action_id: str, parameter_id: str
     ) -> Num:
         return Num(n=cls.parameter_execution_value(type_defs, scene, project, action_id, parameter_id))

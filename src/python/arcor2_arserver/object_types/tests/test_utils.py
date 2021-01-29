@@ -1,4 +1,5 @@
 import pytest
+from typing import Optional
 
 from arcor2.action import patch_object_actions
 from arcor2.data.common import ActionMetadata, StrEnum
@@ -14,7 +15,7 @@ class TestObject(GenericWithPose):
 
     _ABSTRACT = False
 
-    def action_1(self, param1: str, param2: int, param3: bool = False) -> None:
+    def action_1(self, param1: str, param2: int, param3: bool = False, *, an: Optional[str] = None) -> None:
         """Short description.
 
         :param param1: str param
@@ -24,16 +25,16 @@ class TestObject(GenericWithPose):
         """
         assert 0 <= param2 <= 100
 
-    def action_1_cancel(self) -> None:
+    def action_1_cancel(self, *, an: Optional[str] = None) -> None:
         pass
 
-    def action_2(self) -> bool:
+    def action_2(self, *, an: Optional[str] = None) -> bool:
         """
         Short description
         :return:
         """
 
-    def action_3(self) -> None:
+    def action_3(self, *, an: Optional[str] = None) -> None:
         pass
 
     action_1.__action__ = ActionMetadata(blocking=True)  # type: ignore

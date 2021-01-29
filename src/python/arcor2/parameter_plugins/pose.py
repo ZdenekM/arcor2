@@ -50,7 +50,7 @@ class PosePlugin(ParameterPlugin):
         return orientation_id == cls.orientation_id(project, action_id, parameter_id)
 
     @classmethod
-    def parameter_stmt(
+    def parameter_ast(
         cls, type_defs: TypesDict, scene: CScene, project: CProject, action_id: str, parameter_id: str
     ) -> Attribute:
 

@@ -35,7 +35,7 @@ class ImagePlugin(ParameterPlugin):
         return image_to_json(value)
 
     @classmethod
-    def parameter_stmt(
+    def parameter_ast(
         cls, type_defs: TypesDict, scene: CScene, project: CProject, action_id: str, parameter_id: str
     ) -> stmt:
         raise Arcor2NotImplemented("It does not make much sense to have image as literal.")

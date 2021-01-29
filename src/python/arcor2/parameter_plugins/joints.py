@@ -51,7 +51,7 @@ class JointsPlugin(ParameterPlugin):
         return value_id == robot_joints_id
 
     @classmethod
-    def parameter_stmt(
+    def parameter_ast(
         cls, type_defs: TypesDict, scene: CScene, project: CProject, action_id: str, parameter_id: str
     ) -> Attribute:
 

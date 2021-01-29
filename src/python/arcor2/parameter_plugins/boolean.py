@@ -31,7 +31,7 @@ class BooleanPlugin(ParameterPlugin):
         return super(BooleanPlugin, cls)._value_from_json(value)
 
     @classmethod
-    def parameter_stmt(
+    def parameter_ast(
         cls, type_defs: TypesDict, scene: CScene, project: CProject, action_id: str, parameter_id: str
     ) -> NameConstant:
         return NameConstant(value=cls.parameter_execution_value(type_defs, scene, project, action_id, parameter_id))

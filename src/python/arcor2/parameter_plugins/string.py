@@ -24,7 +24,7 @@ class StringPlugin(ParameterPlugin):
         return super(StringPlugin, cls).parameter_value(type_defs, scene, project, action_id, parameter_id)
 
     @classmethod
-    def parameter_stmt(
+    def parameter_ast(
         cls, type_defs: TypesDict, scene: CScene, project: CProject, action_id: str, parameter_id: str
     ) -> Str:
         return Str(s=cls.parameter_execution_value(type_defs, scene, project, action_id, parameter_id), kind="")

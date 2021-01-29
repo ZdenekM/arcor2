@@ -4,7 +4,7 @@ from typing import Any, Callable, NamedTuple, Optional
 
 import humps
 from typed_ast import ast3 as ast
-from typed_ast.ast3 import stmt
+from typed_ast.ast3 import AST
 
 from arcor2.cached import CachedProject as CProject
 from arcor2.cached import CachedScene as CScene
@@ -90,9 +90,9 @@ class ParameterPlugin(metaclass=abc.ABCMeta):
 
     @classmethod
     @abc.abstractmethod
-    def parameter_stmt(
+    def parameter_ast(
         cls, type_defs: TypesDict, scene: CScene, project: CProject, action_id: str, parameter_id: str
-    ) -> stmt:
+    ) -> AST:
         """Used for generating the main script logic.
 
         :param type_defs:

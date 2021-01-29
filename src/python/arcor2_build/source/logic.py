@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Set, Union
 
 import humps
 from typed_ast.ast3 import (
+    AST,
     Compare,
     Continue,
     Eq,
@@ -17,7 +18,6 @@ from typed_ast.ast3 import (
     Str,
     While,
     keyword,
-    stmt,
 )
 
 from arcor2.cached import CachedProject as CProject
@@ -88,14 +88,14 @@ def add_logic_to_loop(type_defs: TypesDict, tree: Module, scene: CScene, project
         act = current_action.parse_type()
         ac_obj = scene.object(act.obj_id).name
 
-        args: List[stmt] = []
+        args: List[AST] = []
 
         # TODO make sure that the order of parameters is correct / re-order
         for param in current_action.parameters:
 
             plugin = plugin_from_type_name(param.type)
 
-            args.append(plugin.parameter_stmt(type_defs, scene, project, current_action.id, param.name))
+            args.append(plugin.parameter_ast(type_defs, scene, project, current_action.id, param.name))
 
             imp_tup = plugin.need_to_be_imported(type_defs, scene, project, current_action.id, param.name)
 
