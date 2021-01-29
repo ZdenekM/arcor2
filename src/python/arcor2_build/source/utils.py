@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Union
 
 import humps
 from typed_ast.ast3 import (
@@ -49,7 +49,7 @@ def main_loop(tree: Module) -> While:
     raise SourceException("Main loop not found.")
 
 
-def empty_script_tree(add_main_loop: bool = True) -> Module:
+def empty_script_tree(project_id: str, add_main_loop: bool = True) -> Module:
     """Creates barebones of the script (empty 'main' function).
 
     Returns
@@ -100,7 +100,11 @@ def empty_script_tree(add_main_loop: bool = True) -> Module:
                             With(
                                 items=[
                                     withitem(
-                                        context_expr=Call(func=Name(id="Resources", ctx=Load()), args=[], keywords=[]),
+                                        context_expr=Call(
+                                            func=Name(id="Resources", ctx=Load()),
+                                            args=[Str(s=project_id, kind="")],
+                                            keywords=[],
+                                        ),
                                         optional_vars=Name(id="res", ctx=Store()),
                                     )
                                 ],
@@ -153,9 +157,15 @@ def global_action_points_class(project: CachedProject) -> str:
     tree.body.append(
         ImportFrom(module=arcor2.data.common.__name__, names=[alias(name=ActionPoint.__name__, asname=None)], level=0)
     )
-    tree.body.append(ImportFrom(module="resources", names=[alias(name="Resources", asname=None)], level=0))
+    tree.body.append(
+        ImportFrom(
+            module=arcor2.resources.__name__,
+            names=[alias(name=arcor2.resources.Resources.__name__, asname=None)],
+            level=0,
+        )
+    )
 
-    aps_init_body = []
+    aps_init_body: List[Union[Assign, Pass]] = []
 
     for ap in project.action_points:
 
@@ -342,7 +352,7 @@ def global_action_points_class(project: CachedProject) -> str:
         )
 
     if not aps_init_body:  # there are no action points
-        aps_init_body.append(Pass)
+        aps_init_body.append(Pass())
 
     aps_cls_def = ClassDef(
         name="ActionPoints",

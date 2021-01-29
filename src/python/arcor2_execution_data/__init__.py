@@ -14,7 +14,6 @@ EXPOSED_RPCS: Tuple[Type[RPC], ...] = (
     rpc.StopPackage,
     rpc.PausePackage,
     rpc.ResumePackage,
-    rpc.PackageState,
     rpc.UploadPackage,
     rpc.ListPackages,
     rpc.DeletePackage,

@@ -16,6 +16,7 @@ from typed_ast.ast3 import (
     Pass,
     Str,
     While,
+    keyword,
     stmt,
 )
 
@@ -26,7 +27,7 @@ from arcor2.logging import get_logger
 from arcor2.parameter_plugins.base import TypesDict
 from arcor2.parameter_plugins.utils import plugin_from_type_name
 from arcor2.source import SCRIPT_HEADER, SourceException
-from arcor2.source.utils import add_import, add_method_call, dump, tree_to_str
+from arcor2.source.utils import add_import, add_method_call, tree_to_str
 from arcor2_build.source.object_types import object_instance_from_res
 from arcor2_build.source.utils import empty_script_tree, main_loop
 
@@ -35,7 +36,7 @@ logger = get_logger(__name__, logging.DEBUG if bool(os.getenv("ARCOR2_LOGIC_DEBU
 
 def program_src(type_defs: TypesDict, project: CProject, scene: CScene, add_logic: bool = True) -> str:
 
-    tree = empty_script_tree(add_main_loop=add_logic)
+    tree = empty_script_tree(project.id, add_main_loop=add_logic)
 
     # get object instances from resources object
     for obj in scene.objects:
@@ -87,7 +88,7 @@ def add_logic_to_loop(type_defs: TypesDict, tree: Module, scene: CScene, project
         act = current_action.parse_type()
         ac_obj = scene.object(act.obj_id).name
 
-        args: List[stmt] = [Str(s=current_action.name, kind="")]
+        args: List[stmt] = []
 
         # TODO make sure that the order of parameters is correct / re-order
         for param in current_action.parameters:
@@ -107,7 +108,7 @@ def add_logic_to_loop(type_defs: TypesDict, tree: Module, scene: CScene, project
             ac_obj,
             act.action_type,
             args,
-            [],
+            [keyword(arg="an", value=Str(s=current_action.name, kind=""))],
             current_action.flow(FlowTypes.DEFAULT).outputs,
         )
 

@@ -26,7 +26,7 @@ import arcor2_execution_data
 from arcor2 import ws_server
 from arcor2.data import common, compile_json_schemas
 from arcor2.data import rpc as arcor2_rpc
-from arcor2.data.events import ActionStateBefore, ActionStateAfter, Event, PackageInfo, PackageState, ProjectException
+from arcor2.data.events import Event, PackageInfo, PackageState, ProjectException
 from arcor2.exceptions import Arcor2Exception
 from arcor2.helpers import port_from_url
 from arcor2.logging import get_aiologger

@@ -174,6 +174,8 @@ async def get_object_types() -> None:
 
     if not initialization and removed_object_ids:
 
+        # TODO remove it from sys.modules
+
         remove_evt = ChangedObjectTypes([v.meta for k, v in glob.OBJECT_TYPES.items() if k in removed_object_ids])
         remove_evt.change_type = Event.Type.REMOVE
         asyncio.ensure_future(notif.broadcast_event(remove_evt))

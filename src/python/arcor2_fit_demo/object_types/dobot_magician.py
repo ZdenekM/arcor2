@@ -31,4 +31,4 @@ class DobotMagician(AbstractDobot):
             Joint(Joints.J5, 1.41726),
         ]
 
-        self.move("", self.forward_kinematics("", joint_values), MoveType.LINEAR, 50)
+        self.move(self.forward_kinematics("", joint_values), MoveType.LINEAR, 50)

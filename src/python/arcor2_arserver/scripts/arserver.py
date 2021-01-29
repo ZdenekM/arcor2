@@ -93,7 +93,6 @@ async def handle_manager_incoming_messages(manager_client) -> None:
                         server_events.package_stopped.set()
                         server_events.package_started.clear()
 
-                        glob.CURRENT_ACTION = None
                         glob.ACTION_STATE_BEFORE = None
                         glob.PACKAGE_INFO = None
 
@@ -101,10 +100,8 @@ async def handle_manager_incoming_messages(manager_client) -> None:
                         server_events.package_stopped.clear()
                         server_events.package_started.set()
 
-                elif isinstance(evt, events.ActionState):
+                elif isinstance(evt, events.ActionStateBefore):
                     glob.ACTION_STATE_BEFORE = evt.data
-                elif isinstance(evt, events.CurrentAction):
-                    glob.CURRENT_ACTION = evt.data
 
             elif "response" in msg:
 

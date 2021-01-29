@@ -1,10 +1,9 @@
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from dataclasses_jsonschema import JsonSchemaMixin
 
-from arcor2.data import events
 from arcor2.data.rpc.common import RPC, IdArgs
 from arcor2_execution_data.common import PackageSummary
 

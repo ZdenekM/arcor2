@@ -3,6 +3,7 @@
 import argparse
 import logging
 import os
+import sys
 import tempfile
 import zipfile
 from datetime import datetime, timezone
@@ -31,6 +32,9 @@ from arcor2_build.source.utils import global_action_points_class
 from arcor2_build_data import SERVICE_NAME, URL
 
 OBJECT_TYPE_MODULE = "arcor2_object_types"
+
+original_sys_path = list(sys.path)
+original_sys_modules = dict(sys.modules)
 
 logger = get_logger("Build")
 
@@ -72,6 +76,10 @@ def _publish(project_id: str, package_name: str) -> RespT:
 
     types_dict: TypesDict = {}
 
+    # restore original environment
+    sys.path = list(original_sys_path)
+    sys.modules = dict(original_sys_modules)
+
     with tempfile.TemporaryDirectory() as tmp_dir:
 
         prepare_object_types_dir(tmp_dir, OBJECT_TYPE_MODULE)
@@ -108,8 +116,8 @@ def _publish(project_id: str, package_name: str) -> RespT:
 
                         model = ps.get_model(obj_type.model.id, obj_type.model.type)
                         obj_model = ObjectModel(
-                            obj_type.model.type, **{model.type().value.lower(): model}
-                        )  # type: ignore
+                            obj_type.model.type, **{model.type().value.lower(): model}  # type: ignore
+                        )
 
                         zf.writestr(
                             os.path.join(data_path, "models", humps.depascalize(obj_type.id) + ".json"),

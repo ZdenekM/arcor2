@@ -16,7 +16,7 @@ def get_action_name_to_id(scene: CachedScene, project: CachedProject, object_typ
     return {act.name: act.id for act in project.actions if scene.object(act.parse_type().obj_id).type == object_type}
 
 
-def patch_object_actions(type_def: Type[Generic], action_name_to_id: Dict[str, str]) -> None:
+def patch_object_actions(type_def: Type[Generic], action_name_to_id: Optional[Dict[str, str]] = None) -> None:
     """Dynamically adds @action decorator to the methods with assigned
     ActionMetadata.
 
@@ -25,7 +25,8 @@ def patch_object_actions(type_def: Type[Generic], action_name_to_id: Dict[str, s
     """
 
     # we somehow need to make action name->id accessible within the @action decorator
-    type_def.action_name_to_id = action_name_to_id
+    if action_name_to_id is not None:
+        type_def.action_name_to_id = action_name_to_id  # type: ignore
 
     for method_name, method in iterate_over_actions(type_def):
         setattr(type_def, method_name, action(method))
@@ -106,25 +107,25 @@ def action(f: F) -> F:
     @wraps(f)
     def wrapper(*args: Union[Generic, Any], **kwargs: Any) -> Any:
 
-        # automagical overload for dictionary (allow to get rid of ** in script).
-        if len(args) == 2 and isinstance(args[1], dict) and not kwargs:
-            kwargs = args[1]
-            args = (args[0],)
+        action_name = kwargs["an"]
+        action_args = args[1:]
 
-        action_name = args[1]
-        action_args = args[2:]
-
-        action_id = args[0].action_name_to_id[action_name]
+        action_id: Optional[str] = None
+        try:
+            action_id = args[0].action_name_to_id[action_name]  # type: ignore
+        except AttributeError:
+            pass
 
         if not action.inside_composite and HANDLE_ACTIONS:  # type: ignore
             # TODO support also kwargs parameters
-            print_event(
-                ActionStateBefore(
-                    ActionStateBefore.Data(
-                        action_id, [plugin_from_instance(arg).value_to_json(arg) for arg in action_args]
+            if action_id:
+                print_event(
+                    ActionStateBefore(
+                        ActionStateBefore.Data(
+                            action_id, [plugin_from_instance(arg).value_to_json(arg) for arg in action_args]
+                        )
                     )
                 )
-            )
             handle_action()
 
         if wrapper.__action__.composite:  # type: ignore # TODO and not step_into
@@ -136,7 +137,8 @@ def action(f: F) -> F:
             action.inside_composite = None  # type: ignore
 
         if not action.inside_composite and HANDLE_ACTIONS:  # type: ignore
-            print_event(ActionStateAfter(ActionStateAfter.Data(action_id, results_to_json(res))))
+            if action_id:
+                print_event(ActionStateAfter(ActionStateAfter.Data(action_id, results_to_json(res))))
             handle_action()
 
         return res

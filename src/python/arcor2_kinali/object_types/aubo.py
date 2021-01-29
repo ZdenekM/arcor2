@@ -50,13 +50,14 @@ class Aubo(AbstractRobot):
 
     def move(
         self,
-        action_name: str,
         end_effector_id: str,
         pose: Pose,
         move_type: MoveTypeEnum,
         speed: float = 0.5,
         acceleration: float = 0.5,
         safe: bool = True,
+        *,
+        an: Optional[str] = None,
     ) -> None:
         """Moves the robot's end-effector to a specific pose.
 
@@ -81,7 +82,6 @@ class Aubo(AbstractRobot):
 
     def move_relative(
         self,
-        action_name: str,
         end_effector_id: str,
         pose: Pose,
         rel_pose: RelativePose,
@@ -89,6 +89,8 @@ class Aubo(AbstractRobot):
         speed: float = 0.5,
         acceleration: float = 0.5,
         safe: bool = True,
+        *,
+        an: Optional[str] = None,
     ) -> None:
         """Moves the robot's end-effector to a specific pose.
 
@@ -115,7 +117,6 @@ class Aubo(AbstractRobot):
 
     def move_relative_joints(
         self,
-        action_name: str,
         end_effector_id: str,
         joints: ProjectRobotJoints,
         rel_pose: RelativePose,
@@ -123,6 +124,8 @@ class Aubo(AbstractRobot):
         speed: float = 0.5,
         acceleration: float = 0.5,
         safe: bool = True,
+        *,
+        an: Optional[str] = None,
     ) -> None:
         """Moves the robot's end-effector relatively to specific joint values.
 
@@ -218,13 +221,13 @@ class Aubo(AbstractRobot):
     def suctions(self) -> Set[str]:
         return set(rest.call(rest.Method.GET, f"{self.settings.url}/suctions", return_type=str))
 
-    def suck(self, action_name: str, suction_id: str) -> None:
+    def suck(self, suction_id: str, *, an: Optional[str] = None) -> None:
         rest.call(rest.Method.PUT, f"{self.settings.url}/suctions/{suction_id}/suck")
 
-    def release(self, action_name: str, suction_id: str) -> None:
+    def release(self, suction_id: str, *, an: Optional[str] = None) -> None:
         rest.call(rest.Method.PUT, f"{self.settings.url}/suctions/{suction_id}/release")
 
-    def is_item_attached(self, action_name: str, suction_id: str) -> bool:
+    def is_item_attached(self, suction_id: str, *, an: Optional[str] = None) -> bool:
         return rest.call(rest.Method.GET, f"{self.settings.url}/suctions/{suction_id}/attached", return_type=bool)
 
     move.__action__ = ActionMetadata(blocking=True)  # type: ignore
