@@ -32,11 +32,14 @@ from typed_ast.ast3 import (
 
 import arcor2.data.common
 import arcor2.exceptions.runtime
-import arcor2.resources
 from arcor2.cached import CachedProject
 from arcor2.data.common import ActionPoint
 from arcor2.source import SourceException
 from arcor2.source.utils import add_import, find_function, tree_to_str
+
+# can't use `import arcor2.resources` as it brings in dependency on ARCOR2_PROJECT_PATH env. var
+RES_MODULE = "arcor2.resources"
+RES_CLS = "Resources"
 
 
 def main_loop(tree: Module) -> While:
@@ -78,7 +81,7 @@ def empty_script_tree(project_id: str, add_main_loop: bool = True) -> Module:
             FunctionDef(
                 name="main",
                 args=arguments(
-                    args=[arg(arg="res", annotation=Name(id="Resources", ctx=Load()), type_comment=None)],
+                    args=[arg(arg="res", annotation=Name(id=RES_CLS, ctx=Load()), type_comment=None)],
                     vararg=None,
                     kwonlyargs=[],
                     kw_defaults=[],
@@ -101,7 +104,7 @@ def empty_script_tree(project_id: str, add_main_loop: bool = True) -> Module:
                                 items=[
                                     withitem(
                                         context_expr=Call(
-                                            func=Name(id="Resources", ctx=Load()),
+                                            func=Name(id=RES_CLS, ctx=Load()),
                                             args=[Str(s=project_id, kind="")],
                                             keywords=[],
                                         ),
@@ -122,12 +125,14 @@ def empty_script_tree(project_id: str, add_main_loop: bool = True) -> Module:
                         ],
                         handlers=[
                             ExceptHandler(
-                                type=Name(id="Exception", ctx=Load()),
+                                type=Name(id=Exception.__name__, ctx=Load()),
                                 name="e",
                                 body=[
                                     Expr(
                                         value=Call(
-                                            func=Name(id="print_exception", ctx=Load()),
+                                            func=Name(
+                                                id=arcor2.exceptions.runtime.print_exception.__name__, ctx=Load()
+                                            ),
                                             args=[Name(id="e", ctx=Load())],
                                             keywords=[],
                                         )
@@ -146,7 +151,7 @@ def empty_script_tree(project_id: str, add_main_loop: bool = True) -> Module:
     )
 
     add_import(tree, arcor2.exceptions.runtime.__name__, arcor2.exceptions.runtime.print_exception.__name__)
-    add_import(tree, arcor2.resources.__name__, arcor2.resources.Resources.__name__, try_to_import=False)
+    add_import(tree, RES_MODULE, RES_CLS, try_to_import=False)
     add_import(tree, "action_points", "ActionPoints", try_to_import=False)
 
     return tree
@@ -159,8 +164,8 @@ def global_action_points_class(project: CachedProject) -> str:
     )
     tree.body.append(
         ImportFrom(
-            module=arcor2.resources.__name__,
-            names=[alias(name=arcor2.resources.Resources.__name__, asname=None)],
+            module=RES_MODULE,
+            names=[alias(name=RES_CLS, asname=None)],
             level=0,
         )
     )
@@ -176,7 +181,7 @@ def global_action_points_class(project: CachedProject) -> str:
                     value=Call(
                         func=Attribute(
                             value=Attribute(value=Name(id="res", ctx=Load()), attr="project", ctx=Load()),
-                            attr="bare_action_point",
+                            attr=CachedProject.bare_action_point.__name__,
                             ctx=Load(),
                         ),
                         args=[Str(s=ap.id, kind="")],
@@ -223,7 +228,7 @@ def global_action_points_class(project: CachedProject) -> str:
                             args=arguments(
                                 args=[
                                     arg(arg="self", annotation=None, type_comment=None),
-                                    arg(arg="res", annotation=Name(id="Resources", ctx=Load()), type_comment=None),
+                                    arg(arg="res", annotation=Name(id=RES_CLS, ctx=Load()), type_comment=None),
                                 ],
                                 vararg=None,
                                 kwonlyargs=[],
@@ -284,7 +289,7 @@ def global_action_points_class(project: CachedProject) -> str:
                             args=arguments(
                                 args=[
                                     arg(arg="self", annotation=None, type_comment=None),
-                                    arg(arg="res", annotation=Name(id="Resources", ctx=Load()), type_comment=None),
+                                    arg(arg="res", annotation=Name(id=RES_CLS, ctx=Load()), type_comment=None),
                                 ],
                                 vararg=None,
                                 kwonlyargs=[],
@@ -325,7 +330,7 @@ def global_action_points_class(project: CachedProject) -> str:
                         args=arguments(
                             args=[
                                 arg(arg="self", annotation=None, type_comment=None),
-                                arg(arg="res", annotation=Name(id="Resources", ctx=Load()), type_comment=None),
+                                arg(arg="res", annotation=Name(id=RES_CLS, ctx=Load()), type_comment=None),
                             ],
                             vararg=None,
                             kwonlyargs=[],
@@ -364,7 +369,7 @@ def global_action_points_class(project: CachedProject) -> str:
                 args=arguments(
                     args=[
                         arg(arg="self", annotation=None, type_comment=None),
-                        arg(arg="res", annotation=Name(id="Resources", ctx=Load()), type_comment=None),
+                        arg(arg="res", annotation=Name(id=RES_CLS, ctx=Load()), type_comment=None),
                     ],
                     vararg=None,
                     kwonlyargs=[],
