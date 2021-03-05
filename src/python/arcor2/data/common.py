@@ -80,15 +80,24 @@ class Position(IterableIndexable):
     y: float = 0.0
     z: float = 0.0
 
-    def rotated(self, rot: "Orientation", inverse: bool = False) -> "Position":
+    def rotated(self, pose: "Pose", inverse: bool = False) -> "Position":
 
-        q = rot.as_quaternion()
+        x = self.x - pose.position.x
+        y = self.x - pose.position.y
+        z = self.x - pose.position.z
+
+        q = pose.orientation.as_quaternion()
 
         if inverse:
             q = q.inverse()
 
-        rotated_vector = quaternion.rotate_vectors([q], [list(self)])[0][0]
-        return Position(rotated_vector[0], rotated_vector[1], rotated_vector[2])
+        rotated_vector = quaternion.rotate_vectors([q], [[x, y, z]])[0][0]
+
+        x = rotated_vector[0] + pose.position.x
+        y = rotated_vector[1] + pose.position.y
+        z = rotated_vector[2] + pose.position.z
+
+        return Position(x, y, z)
 
     def __eq__(self, other: object) -> bool:
 

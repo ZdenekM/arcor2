@@ -366,7 +366,7 @@ async def update_object_pose_using_robot_cb(req: srpc.o.UpdateObjectPoseUsingRob
             elif req.args.pivot == req.args.PivotEnum.BOTTOM:
                 position_delta.z += collision_model.radius / 2
 
-    position_delta = position_delta.rotated(new_pose.orientation)
+    position_delta = position_delta.rotated(new_pose)
 
     assert scene_object.pose
 

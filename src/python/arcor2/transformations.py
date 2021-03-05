@@ -29,7 +29,7 @@ def make_pose_rel(parent: Pose, child: Pose) -> Pose:
     """
 
     p = Pose()
-    p.position = make_position_rel(parent.position, child.position).rotated(parent.orientation, True)
+    p.position = make_position_rel(parent.position, child.position).rotated(parent, True)
     p.orientation = make_orientation_rel(parent.orientation, child.orientation)
     return p
 
@@ -58,7 +58,7 @@ def make_pose_abs(parent: Pose, child: Pose) -> Pose:
     """
 
     p = Pose()
-    p.position = child.position.rotated(parent.orientation)
+    p.position = child.position.rotated(parent)
     p.position = make_position_abs(parent.position, p.position)
     p.orientation = make_orientation_abs(parent.orientation, child.orientation)
     return p
