@@ -82,9 +82,9 @@ class Position(IterableIndexable):
 
     def rotated(self, pose: "Pose", inverse: bool = False) -> "Position":
 
-        x = self.x - pose.position.x
-        y = self.x - pose.position.y
-        z = self.x - pose.position.z
+        x = self.x
+        y = self.y
+        z = self.z
 
         q = pose.orientation.as_quaternion()
 
@@ -93,9 +93,9 @@ class Position(IterableIndexable):
 
         rotated_vector = quaternion.rotate_vectors([q], [[x, y, z]])[0][0]
 
-        x = rotated_vector[0] + pose.position.x
-        y = rotated_vector[1] + pose.position.y
-        z = rotated_vector[2] + pose.position.z
+        x = rotated_vector[0]
+        y = rotated_vector[1]
+        z = rotated_vector[2]
 
         return Position(x, y, z)
 
@@ -104,10 +104,34 @@ class Position(IterableIndexable):
         if not isinstance(other, Position):
             return False
 
-        for my_val, other_val in zip(self, other):
-            if not math.isclose(my_val, other_val):
-                return False
-        return True
+        return np.allclose(list(self), list(other), rtol=1.0e-6)
+
+    def __add__(self, other) -> "Position":
+
+        if not isinstance(other, Position):
+            raise Arcor2Exception("Not a position.")
+
+        return Position(self.x + other.x, self.y + other.y, self.z + other.z)
+
+    def __sub__(self, other) -> "Position":
+
+        if not isinstance(other, Position):
+            raise Arcor2Exception("Not a position.")
+
+        return Position(self.x - other.x, self.y - other.y, self.z - other.z)
+
+    def as_tr_matrix(self) -> np.ndarray:
+
+        arr = np.empty((4, 4))
+        arr[:3, 3] = list(self)
+        arr[3, :] = [0, 0, 0, 1]
+        return arr
+
+    @staticmethod
+    def from_tr_matrix(matrix: np.ndarray) -> "Position":
+
+        tvec = matrix[:3, 3]
+        return Position(tvec[0], tvec[1], tvec[2])
 
 
 @dataclass
@@ -131,6 +155,13 @@ class Orientation(IterableIndexable):
     def as_quaternion(self) -> quaternion.quaternion:
         return self._normalized(quaternion.quaternion(self.w, self.x, self.y, self.z))
 
+    @staticmethod
+    def from_quaternion(q: quaternion.quaternion) -> "Orientation":
+
+        o = Orientation()
+        o.set_from_quaternion(q)
+        return o
+
     def set_from_quaternion(self, q: quaternion.quaternion) -> None:
 
         nq = self._normalized(q)
@@ -140,7 +171,7 @@ class Orientation(IterableIndexable):
         self.z = nq.z
         self.w = nq.w
 
-    def as_transformation_matrix(self) -> np.ndarray:
+    def as_tr_matrix(self) -> np.ndarray:
         """Returns 4x4 transformation matrix.
 
         :return:
@@ -156,7 +187,7 @@ class Orientation(IterableIndexable):
         if not isinstance(other, Orientation):
             return False
 
-        return cast(bool, quaternion.isclose(self.as_quaternion(), other.as_quaternion(), rtol=1.0e-8)[0])
+        return cast(bool, quaternion.isclose(self.as_quaternion(), other.as_quaternion(), rtol=1.0e-6)[0])
 
     def __post_init__(self):
 
@@ -182,7 +213,7 @@ class Pose(JsonSchemaMixin):
     position: Position = field(default_factory=Position)
     orientation: Orientation = field(default_factory=Orientation)
 
-    def as_transformation_matrix(self) -> np.ndarray:
+    def as_tr_matrix(self) -> np.ndarray:
 
         arr = np.empty((4, 4))
         arr[:3, :3] = quaternion.as_rotation_matrix(self.orientation.as_quaternion())
@@ -191,7 +222,7 @@ class Pose(JsonSchemaMixin):
         return arr
 
     @staticmethod
-    def from_transformation_matrix(matrix: np.ndarray) -> "Pose":
+    def from_tr_matrix(matrix: np.ndarray) -> "Pose":
 
         tvec = matrix[:3, 3]
         o = Orientation()
