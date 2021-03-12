@@ -6,6 +6,7 @@ from dataclasses_jsonschema import JsonSchemaMixin
 from arcor2.data.common import Joint, Orientation, Pose, Position, StrEnum
 from arcor2.data.rpc.common import RPC
 from arcor2_arserver_data.robot import RobotMeta
+from arcor2.exceptions import Arcor2Exception
 
 
 class GetRobotMeta(RPC):
@@ -280,6 +281,72 @@ class HandTeachingMode(RPC):
 
         args: Args
         dry_run: bool = False
+
+    @dataclass
+    class Response(RPC.Response):
+        pass
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+class SetEefPerpendicularToWorld(RPC):
+    @dataclass
+    class Request(RPC.Request):
+        @dataclass
+        class Args(JsonSchemaMixin):
+            robot_id: str
+            end_effector_id: str
+            safe: bool = True
+
+        args: Args
+        dry_run: bool = False
+
+    @dataclass
+    class Response(RPC.Response):
+        pass
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+class StepRobotEef(RPC):
+
+    @dataclass
+    class Request(RPC.Request):
+
+        @dataclass
+        class Args(JsonSchemaMixin):
+
+            class Axis(StrEnum):
+                X: str = "x"
+                Y: str = "y"
+                Z: str = "z"
+
+            class What(StrEnum):
+                POSITION: str = "position"
+                ORIENTATION: str = "orientation"
+
+            class Mode(StrEnum):
+                WORLD: str = "world"
+                ROBOT: str = "robot"
+                USER: str = "user"
+                RELATIVE: str = "relative"
+
+            robot_id: str
+            end_effector_id: str
+            axis: Axis
+            what: What
+            step: float
+            safe: bool = True
+            pose: Optional[Pose] = None
+
+        args: Args
+        dry_run: bool = False
+
+        def __post_init__(self) -> None:
+
+            if self.mode in (StepRobotEef.Request.Args.Mode.USER, StepRobotEef.Request.Args.Mode.RELATIVE) and self.pose is None:
+                raise Arcor2Exception("Pose needed.")
 
     @dataclass
     class Response(RPC.Response):

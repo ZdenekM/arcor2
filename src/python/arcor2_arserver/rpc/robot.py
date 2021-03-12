@@ -421,3 +421,24 @@ async def hand_teaching_mode_cb(req: srpc.r.HandTeachingMode.Request, ui: WsClie
     await run_in_executor(robot_inst.set_hand_teaching_mode, req.args.enable)
     evt = HandTeachingMode(HandTeachingMode.Data(req.args.robot_id, req.args.enable))
     asyncio.ensure_future(notif.broadcast_event(evt))
+
+
+@scene_needed
+async def set_eef_perpendicular_to_world_cb(req: srpc.r.SetEefPerpendicularToWorld.Request, ui: WsClient) -> None:
+
+    ensure_scene_started()
+    await check_feature(req.args.robot_id, Robot.move_to_pose.__name__)
+    await robot.check_robot_before_move(req.args.robot_id)
+
+    target_pose = await robot.get_end_effector_pose(req.args.robot_id, req.args.end_effector_id)
+
+
+    # TODO compute IK
+
+    if req.dry_run:
+        return
+
+    # TODO check if the target pose is reachable (dry_run)
+    asyncio.ensure_future(
+        robot.move_to_pose(req.args.robot_id, req.args.end_effector_id, target_pose, req.args.speed, req.args.safe)
+    )
