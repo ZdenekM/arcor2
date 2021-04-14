@@ -3,7 +3,8 @@ from __future__ import annotations
 import abc
 import copy
 import uuid
-from dataclasses import dataclass, field
+from dataclassy import dataclass
+from dataclasses import field
 from datetime import datetime
 from enum import Enum, unique
 from json import JSONEncoder
@@ -235,10 +236,11 @@ class Orientation(IterableIndexable):
         self.w = nq.w
 
 
-class ModelMixin(abc.ABC):
+@dataclass
+class ModelBase(JsonSchemaMixin):
     """Mixin for objects with 'id' property that is uuid."""
 
-    id: str
+    id: str = ""
 
     @classmethod
     @abc.abstractmethod
@@ -259,20 +261,14 @@ class ModelMixin(abc.ABC):
 
 
 @dataclass
-class NamedOrientation(JsonSchemaMixin, ModelMixin):
+class NamedOrientation(ModelBase):
 
     name: str
     orientation: Orientation
-    id: str = ""
 
     @classmethod
     def uid_prefix(cls) -> str:
         return "ori"
-
-    def copy(self) -> NamedOrientation:
-        c = copy.deepcopy(self)
-        c.id = self.uid()
-        return c
 
 
 @dataclass
@@ -314,7 +310,7 @@ class ActionMetadata(JsonSchemaMixin):
     blocking: bool = False
     composite: bool = False
     blackbox: bool = False
-    cancellable: bool = field(init=False, default=False)
+    cancellable: bool = False  # TODO this used to be like field(init=False, default=False)
 
 
 @dataclass
@@ -325,13 +321,13 @@ class Joint(JsonSchemaMixin):
 
 
 @dataclass
-class ProjectRobotJoints(JsonSchemaMixin, ModelMixin):
+class ProjectRobotJoints(ModelBase):
 
     name: str
     robot_id: str
     joints: List[Joint]
     is_valid: bool = False
-    id: str = ""
+    
 
     @classmethod
     def uid_prefix(cls) -> str:
@@ -352,14 +348,14 @@ class Parameter(JsonSchemaMixin):
 
 
 @dataclass
-class SceneObject(JsonSchemaMixin, ModelMixin):
+class SceneObject(ModelBase):
 
     name: str
     type: str
     pose: Optional[Pose] = None
-    parameters: List[Parameter] = field(default_factory=list)
-    children: List[SceneObject] = field(default_factory=list)
-    id: str = ""
+    parameters: List[Parameter] = []
+    children: List[SceneObject] = []
+    
 
     @classmethod
     def uid_prefix(cls) -> str:
@@ -372,13 +368,13 @@ class SceneObject(JsonSchemaMixin, ModelMixin):
 
 
 @dataclass
-class BareScene(JsonSchemaMixin, ModelMixin):
+class BareScene(ModelBase):
 
     name: str
-    desc: str = field(default_factory=str)
+    desc: str = ""
     modified: Optional[datetime] = None
     int_modified: Optional[datetime] = None
-    id: str = ""
+    
 
     @classmethod
     def uid_prefix(cls) -> str:
@@ -395,7 +391,7 @@ class BareScene(JsonSchemaMixin, ModelMixin):
 @dataclass
 class Scene(BareScene):
 
-    objects: List[SceneObject] = field(default_factory=list)
+    objects: List[SceneObject] = []
 
     @staticmethod
     def from_bare(bare: BareScene) -> Scene:
@@ -432,7 +428,7 @@ class ActionParameter(Parameter):
 class Flow(JsonSchemaMixin):
 
     type: FlowTypes = FlowTypes.DEFAULT
-    outputs: List[str] = field(default_factory=list)  # can't be set as it is unordered
+    outputs: List[str] = []  # can't be set as it is unordered
 
     def __post_init__(self) -> None:
 
@@ -441,11 +437,11 @@ class Flow(JsonSchemaMixin):
 
 
 @dataclass
-class BareAction(JsonSchemaMixin, ModelMixin):
+class BareAction(ModelBase):
 
     name: str
     type: str
-    id: str = ""
+    
 
     @classmethod
     def uid_prefix(cls) -> str:
@@ -466,8 +462,8 @@ class Action(BareAction):
         obj_id: str
         action_type: str
 
-    parameters: List[ActionParameter] = field(default_factory=list)
-    flows: List[Flow] = field(default_factory=list)
+    parameters: List[ActionParameter] = []
+    flows: List[Flow] = []
 
     def parse_type(self) -> ParsedType:
 
@@ -498,12 +494,12 @@ class Action(BareAction):
 
 
 @dataclass
-class BareActionPoint(JsonSchemaMixin, ModelMixin):
+class BareActionPoint(ModelBase):
 
     name: str
     position: Position
     parent: Optional[str] = None
-    id: str = ""
+    
 
     @classmethod
     def uid_prefix(cls) -> str:
@@ -520,9 +516,9 @@ class BareActionPoint(JsonSchemaMixin, ModelMixin):
 @dataclass
 class ActionPoint(BareActionPoint):
 
-    orientations: List[NamedOrientation] = field(default_factory=list)
-    robot_joints: List[ProjectRobotJoints] = field(default_factory=list)
-    actions: List[Action] = field(default_factory=list)
+    orientations: List[NamedOrientation] = []
+    robot_joints: List[ProjectRobotJoints] = []
+    actions: List[Action] = []
 
     @staticmethod
     def from_bare(bare: BareActionPoint) -> ActionPoint:
@@ -540,7 +536,7 @@ class ProjectLogicIf(JsonSchemaMixin):
 
 
 @dataclass
-class LogicItem(JsonSchemaMixin, ModelMixin):
+class LogicItem(ModelBase):
     class ParsedStart(NamedTuple):
 
         start_action_id: str
@@ -552,7 +548,7 @@ class LogicItem(JsonSchemaMixin, ModelMixin):
     start: str
     end: str
     condition: Optional[ProjectLogicIf] = None
-    id: str = ""
+    
 
     def parse_start(self) -> ParsedStart:
 
@@ -574,12 +570,12 @@ class LogicItem(JsonSchemaMixin, ModelMixin):
 
 
 @dataclass
-class ProjectConstant(JsonSchemaMixin, ModelMixin):
+class ProjectConstant(ModelBase):
 
     name: str
     type: str
     value: str
-    id: str = ""
+    
 
     @classmethod
     def uid_prefix(cls) -> str:
@@ -594,14 +590,14 @@ class FunctionReturns(JsonSchemaMixin):
 
 
 @dataclass
-class ProjectFunction(JsonSchemaMixin, ModelMixin):
+class ProjectFunction(ModelBase):
 
     name: str
-    actions: List[Action] = field(default_factory=list)
-    logic: List[LogicItem] = field(default_factory=list)
-    parameters: List[ActionParameter] = field(default_factory=list)
-    returns: List[FunctionReturns] = field(default_factory=list)
-    id: str = ""
+    actions: List[Action] = []
+    logic: List[LogicItem] = []
+    parameters: List[ActionParameter] = []
+    returns: List[FunctionReturns] = []
+    
 
     def action_ids(self) -> Set[str]:
         return {act.id for act in self.actions}
@@ -632,15 +628,15 @@ class SceneObjectOverride(JsonSchemaMixin):
 
 
 @dataclass
-class BareProject(JsonSchemaMixin, ModelMixin):
+class BareProject(ModelBase):
 
     name: str
     scene_id: str
-    desc: str = field(default_factory=str)
+    desc: str = ""
     has_logic: bool = True
     modified: Optional[datetime] = None
     int_modified: Optional[datetime] = None
-    id: str = ""
+    
 
     @classmethod
     def uid_prefix(cls) -> str:
@@ -657,11 +653,11 @@ class BareProject(JsonSchemaMixin, ModelMixin):
 @dataclass
 class Project(BareProject):
 
-    action_points: List[ActionPoint] = field(default_factory=list)
-    constants: List[ProjectConstant] = field(default_factory=list)
-    functions: List[ProjectFunction] = field(default_factory=list)
-    logic: List[LogicItem] = field(default_factory=list)
-    object_overrides: List[SceneObjectOverride] = field(default_factory=list)
+    action_points: List[ActionPoint] = []
+    constants: List[ProjectConstant] = []
+    functions: List[ProjectFunction] = []
+    logic: List[LogicItem] = []
+    object_overrides: List[SceneObjectOverride] = []
 
     @staticmethod
     def from_bare(bare: BareProject) -> Project:
@@ -687,7 +683,7 @@ class IdDesc(JsonSchemaMixin):
 @dataclass
 class IdDescList(JsonSchemaMixin):
 
-    items: List[IdDesc] = field(default_factory=list)
+    items: List[IdDesc] = []
 
 
 @dataclass

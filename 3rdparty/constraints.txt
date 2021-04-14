@@ -8,6 +8,7 @@ autopep8==1.5.6
 certifi==2020.12.5
 click==7.1.2
 Cython==0.29.22
+dataclassy==0.8
 dataclasses-jsonschema==2.14.1
 fastjsonschema==2.15.0
 flask_cors==3.0.10
