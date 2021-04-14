@@ -4,7 +4,6 @@ import abc
 import copy
 import uuid
 from dataclassy import dataclass
-from dataclasses import field
 from datetime import datetime
 from enum import Enum, unique
 from json import JSONEncoder
@@ -274,8 +273,8 @@ class NamedOrientation(ModelBase):
 @dataclass
 class Pose(JsonSchemaMixin):
 
-    position: Position = field(default_factory=Position)
-    orientation: Orientation = field(default_factory=Orientation)
+    position: Position = Position()
+    orientation: Orientation = Orientation()
 
     def as_tr_matrix(self) -> np.ndarray:
 
@@ -361,11 +360,6 @@ class SceneObject(ModelBase):
     def uid_prefix(cls) -> str:
         return "obj"
 
-    def copy(self) -> SceneObject:
-        c = copy.deepcopy(self)
-        c.id = self.uid()
-        return c
-
 
 @dataclass
 class BareScene(ModelBase):
@@ -379,13 +373,6 @@ class BareScene(ModelBase):
     @classmethod
     def uid_prefix(cls) -> str:
         return "scn"
-
-    SCN = TypeVar("SCN", bound="BareScene")
-
-    def copy(self: SCN) -> SCN:
-        c = copy.deepcopy(self)
-        c.id = self.uid()
-        return c
 
 
 @dataclass
@@ -441,18 +428,10 @@ class BareAction(ModelBase):
 
     name: str
     type: str
-    
 
     @classmethod
     def uid_prefix(cls) -> str:
         return "act"
-
-    ACT = TypeVar("ACT", bound="BareAction")
-
-    def copy(self: ACT) -> ACT:
-        c = copy.deepcopy(self)
-        c.id = self.uid()
-        return c
 
 
 @dataclass
@@ -505,13 +484,6 @@ class BareActionPoint(ModelBase):
     def uid_prefix(cls) -> str:
         return "acp"
 
-    ACP = TypeVar("ACP", bound="BareActionPoint")
-
-    def copy(self: ACP) -> ACP:
-        c = copy.deepcopy(self)
-        c.id = self.uid()
-        return c
-
 
 @dataclass
 class ActionPoint(BareActionPoint):
@@ -563,11 +535,6 @@ class LogicItem(ModelBase):
     def uid_prefix(cls) -> str:
         return "lit"
 
-    def copy(self) -> LogicItem:
-        c = copy.deepcopy(self)
-        c.id = self.uid()
-        return c
-
 
 @dataclass
 class ProjectConstant(ModelBase):
@@ -575,7 +542,6 @@ class ProjectConstant(ModelBase):
     name: str
     type: str
     value: str
-    
 
     @classmethod
     def uid_prefix(cls) -> str:
@@ -597,7 +563,6 @@ class ProjectFunction(ModelBase):
     logic: List[LogicItem] = []
     parameters: List[ActionParameter] = []
     returns: List[FunctionReturns] = []
-    
 
     def action_ids(self) -> Set[str]:
         return {act.id for act in self.actions}
@@ -613,11 +578,6 @@ class ProjectFunction(ModelBase):
     @classmethod
     def uid_prefix(cls) -> str:
         return "pfu"
-
-    def copy(self) -> ProjectFunction:
-        c = copy.deepcopy(self)
-        c.id = self.uid()
-        return c
 
 
 @dataclass
@@ -636,18 +596,10 @@ class BareProject(ModelBase):
     has_logic: bool = True
     modified: Optional[datetime] = None
     int_modified: Optional[datetime] = None
-    
 
     @classmethod
     def uid_prefix(cls) -> str:
         return "pro"
-
-    PRO = TypeVar("PRO", bound="BareProject")
-
-    def copy(self: PRO) -> PRO:
-        c = copy.deepcopy(self)
-        c.id = self.uid()
-        return c
 
 
 @dataclass
