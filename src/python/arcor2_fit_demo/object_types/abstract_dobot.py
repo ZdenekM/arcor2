@@ -7,11 +7,12 @@ from arcor2.data.common import ActionMetadata, Joint, Pose, StrEnum
 from arcor2.data.robot import RobotType
 from arcor2.object_types.abstract import Robot, RobotException, Settings
 
+from .fit_common_mixin import FitCommonMixin, UrlSettings
+
 
 @dataclass
-class DobotSettings(Settings):
+class DobotSettings(UrlSettings):
 
-    url: str
     port: str = "/dev/dobot"
 
 
@@ -26,18 +27,12 @@ class MoveType(StrEnum):
     LINEAR: str = "LINEAR"
 
 
-class AbstractDobot(Robot):
+class AbstractDobot(FitCommonMixin, Robot):
 
     robot_type = RobotType.SCARA
 
     def __init__(self, obj_id: str, name: str, pose: Pose, settings: DobotSettings) -> None:
         super(AbstractDobot, self).__init__(obj_id, name, pose, settings)
-
-    def _started(self) -> bool:
-        return rest.call(rest.Method.GET, f"{self.settings.url}/started", return_type=bool)
-
-    def _stop(self) -> None:
-        rest.call(rest.Method.PUT, f"{self.settings.url}/stop")
 
     def _start(self, model: str) -> None:
 

@@ -11,13 +11,10 @@ from arcor2.data.object_type import Models
 from arcor2.object_types.abstract import Camera
 from arcor2.object_types.abstract import Settings as BaseSettings
 
-
-@dataclass
-class Settings(BaseSettings):
-    url: str
+from .fit_common_mixin import FitCommonMixin, UrlSettings
 
 
-class KinectAzure(Camera):
+class KinectAzure(FitCommonMixin, Camera):
 
     _ABSTRACT = False
 
@@ -27,7 +24,7 @@ class KinectAzure(Camera):
         name: str,
         pose: Pose,
         collision_model: Optional[Models] = None,
-        settings: Optional[Settings] = None,
+        settings: Optional[UrlSettings] = None,
     ) -> None:
 
         super(KinectAzure, self).__init__(obj_id, name, pose, collision_model, settings)
@@ -41,17 +38,11 @@ class KinectAzure(Camera):
         )
 
     @property
-    def settings(self) -> Settings:
-        return cast(Settings, super(KinectAzure, self).settings)
+    def settings(self) -> UrlSettings:
+        return cast(UrlSettings, super(KinectAzure, self).settings)
 
     def _start(self) -> None:
         rest.call(rest.Method.PUT, f"{self.settings.url}/state/start")
-
-    def _started(self) -> bool:
-        return rest.call(rest.Method.GET, f"{self.settings.url}/state/started", return_type=bool)
-
-    def _stop(self) -> None:
-        rest.call(rest.Method.PUT, f"{self.settings.url}/state/stop")
 
     def color_image(self, *, an: Optional[str] = None) -> Image.Image:
         return rest.get_image(f"{self.settings.url}/color/image")

@@ -54,22 +54,26 @@ def get_base(
     ot_path: str,
 ) -> None:
 
-    base = base_from_source(obj_type.source, obj_type.id)
+    bases = base_from_source(obj_type.source, obj_type.id)
 
-    if base is None:
+    if not bases:
         raise Arcor2Exception(f"Could not determine base class for {obj_type.id}.")
 
-    if base in types_dict.keys() | built_in_types_names() | scene_object_types:
+    if bases[0] in types_dict.keys() | built_in_types_names() | scene_object_types:
         return
 
-    logger.debug(f"Getting {base} as base of {obj_type.id}.")
-    base_obj_type = ps.get_object_type(base)
+    logger.debug(f"Getting {bases[0]} as base of {obj_type.id}.")
+    base_obj_type = ps.get_object_type(bases[0])
 
     zf.writestr(os.path.join(ot_path, humps.depascalize(base_obj_type.id)) + ".py", base_obj_type.source)
 
     types_dict[base_obj_type.id] = save_and_import_type_def(
         base_obj_type.source, base_obj_type.id, Generic, tmp_dir, OBJECT_TYPE_MODULE
     )
+
+    for mixin in bases[1:]:
+        mixin_obj = ps.get_object_type(mixin)
+        zf.writestr(os.path.join(ot_path, humps.depascalize(mixin_obj.id)) + ".py", mixin_obj.source)
 
     # try to get base of the base
     get_base(types_dict, tmp_dir, scene_object_types, base_obj_type, zf, ot_path)
@@ -379,31 +383,33 @@ def project_import() -> RespT:
 
             logger.debug(f"Just imported {obj_type_name}.")
 
-            while True:
-                base = base_from_source(obj_type_src, obj_type_name)
+            while True:  # TODO refactor into a function!!!
+                bases = base_from_source(obj_type_src, obj_type_name)  # TODO how to know if it is an ObjectType or Mixin?
 
-                if not base:
+                if not bases:
                     return json.dumps(f"Could not determine base class for {scene_obj.type}."), 401
 
-                if base in objects.keys() | built_in_types_names():
-                    break
+                for base in bases:
 
-                logger.debug(f"Importing {base} as a base of {obj_type_name}.")
+                    if base in objects.keys() | built_in_types_names():
+                        continue
 
-                try:
-                    base_obj_type_src = read_str_from_zip(zip_file, f"object_types/{humps.depascalize(base)}.py")
-                except KeyError:
-                    return json.dumps(f"Could not find {base} object type (base of {obj_type_name})."), 404
+                    logger.debug(f"Importing {base} as a base of {obj_type_name}.")
 
-                try:
-                    parse(base_obj_type_src)
-                except Arcor2Exception:
-                    return json.dumps(f"Invalid code of the {base} object type (base of {obj_type_name})."), 401
+                    try:
+                        base_obj_type_src = read_str_from_zip(zip_file, f"object_types/{humps.depascalize(base)}.py")
+                    except KeyError:
+                        return json.dumps(f"Could not find {base} object type (base of {obj_type_name})."), 404
 
-                objects[base] = ObjectType(base, base_obj_type_src)
+                    try:
+                        parse(base_obj_type_src)
+                    except Arcor2Exception:
+                        return json.dumps(f"Invalid code of the {base} object type (base of {obj_type_name})."), 401
 
-                obj_type_name = base
-                obj_type_src = base_obj_type_src
+                    objects[base] = ObjectType(base, base_obj_type_src)
+
+                    obj_type_name = base
+                    obj_type_src = base_obj_type_src
 
         for obj_type in objects.values():  # handle models
 
