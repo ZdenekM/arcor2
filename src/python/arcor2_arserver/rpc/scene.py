@@ -574,7 +574,7 @@ async def start_scene_cb(req: srpc.s.StartScene.Request, ui: WsClient) -> None:
 
     scene = glob.LOCK.scene_or_exception()
 
-    if get_scene_state() != sevts.s.SceneState.Data.StateEnum.Stopped:
+    if get_scene_state().data.state != sevts.s.SceneState.Data.StateEnum.Stopped:
         raise Arcor2Exception("Scene not stopped.")
 
     if await glob.LOCK.get_write_locks_count():
@@ -590,7 +590,7 @@ async def stop_scene_cb(req: srpc.s.StopScene.Request, ui: WsClient) -> None:
 
     # TODO it should not be possible to stop scene while some action runs
 
-    if get_scene_state() != sevts.s.SceneState.Data.StateEnum.Started:
+    if get_scene_state().data.state != sevts.s.SceneState.Data.StateEnum.Started:
         raise Arcor2Exception("Scene not started.")
 
     if await glob.LOCK.get_write_locks_count():
