@@ -12,6 +12,7 @@ import sys
 import uuid
 from typing import Dict, List, Type, get_type_hints
 
+import uvloop
 import websockets
 from aiologger.levels import LogLevel
 from aiorun import run
@@ -119,6 +120,8 @@ async def handle_manager_incoming_messages(manager_client) -> None:
 
 
 async def _initialize_server() -> None:
+
+    exe.MANAGER_RPC_REQUEST_QUEUE = exe.ReqQueue()
 
     exe_version = await exe.manager_request(rpc.common.Version.Request(uuid.uuid4().int))
     assert isinstance(exe_version, rpc.common.Version.Response)
@@ -265,6 +268,10 @@ EVENT_DICT: ws_server.EVENT_DICT_TYPE = {}
 
 async def aio_main() -> None:
 
+    from arcor2.logging import get_aiologger
+    glob.logger = get_aiologger("ARServer")
+    glob.LOCK = glob.Lock()
+
     await asyncio.gather(exe.project_manager_client(handle_manager_incoming_messages), _initialize_server())
 
 
@@ -321,11 +328,12 @@ def main() -> None:
         print_openapi_models()
         return
 
-    glob.logger.level = args.debug
+    # glob.logger.level = args.debug
     glob.VERBOSE = args.verbose
 
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     loop = asyncio.get_event_loop()
-    loop.set_debug(enabled=args.asyncio_debug)
+    loop.set_debug(args.asyncio_debug)
 
     compile_json_schemas()
 

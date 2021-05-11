@@ -12,7 +12,7 @@ from arcor2_arserver.object_types.data import ObjectTypeDict
 from arcor2_arserver.user import Users
 from arcor2_arserver_data.events.common import ShowMainScreen
 
-logger = get_aiologger("ARServer")
+logger = None
 VERBOSE: bool = False
 
 PORT: int = int(os.getenv("ARCOR2_SERVER_PORT", 6789))
@@ -41,7 +41,7 @@ ROBOT_EEF_REGISTERED_UIS: RegisteredUiDict = defaultdict(lambda: set())  # robot
 
 OBJECTS_WITH_UPDATED_POSE: Set[str] = set()
 
-LOCK: Lock = Lock()
+LOCK: Optional[Lock] = None
 
 USERS: Users = Users()
 

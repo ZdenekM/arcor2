@@ -29,7 +29,7 @@ else:
     ReqQueue = asyncio.Queue
     RespQueue = asyncio.Queue
 
-MANAGER_RPC_REQUEST_QUEUE: ReqQueue = ReqQueue()
+MANAGER_RPC_REQUEST_QUEUE: Optional[ReqQueue] = ReqQueue()
 MANAGER_RPC_RESPONSES: Dict[int, RespQueue] = {}
 
 
