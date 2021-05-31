@@ -159,7 +159,7 @@ async def check_reachability(
     scene: CachedScene, robot_inst: Robot, end_effector_id: str, pose: common.Pose, safe: bool = True
 ) -> None:
 
-    otd = osa.get_obj_type_data(scene, robot_inst.id)
+    otd = osa.get_obj_type_by_id(scene, robot_inst.id)
     if otd.robot_meta and otd.robot_meta.features.inverse_kinematics:
         try:
             await ik(robot_inst, end_effector_id, pose, avoid_collisions=safe)

@@ -11,7 +11,7 @@ from arcor2.parameter_plugins.utils import known_parameter_types, plugin_from_ty
 from arcor2_arserver import globals as glob
 from arcor2_arserver import notifications as notif
 from arcor2_arserver.clients import persistent_storage as storage
-from arcor2_arserver.objects_actions import get_types_dict
+from arcor2_arserver.objects_actions import get_types_dict, get_obj_type_by_id
 from arcor2_arserver.scene import get_scene_state, open_scene
 from arcor2_arserver_data.events.actions import ActionExecution, ActionResult
 from arcor2_arserver_data.events.common import ShowMainScreen
@@ -178,12 +178,7 @@ def check_flows(
 def find_object_action(scene: CachedScene, action: common.Action) -> ObjectAction:
 
     obj_id, action_type = action.parse_type()
-    obj = scene.object(obj_id)
-
-    try:
-        obj_type = glob.OBJECT_TYPES[obj.type]
-    except KeyError:
-        raise Arcor2Exception("Unknown object type.")
+    obj_type = get_obj_type_by_id(scene, obj_id)
 
     try:
         act = obj_type.actions[action_type]

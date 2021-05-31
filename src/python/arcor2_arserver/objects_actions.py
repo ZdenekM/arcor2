@@ -10,7 +10,7 @@ from arcor2.data.object_type import ObjectModel
 from arcor2.exceptions import Arcor2Exception
 from arcor2.helpers import convert_line_endings_to_unix
 from arcor2.object_types import utils as otu
-from arcor2.object_types.abstract import Generic, Robot
+from arcor2.object_types.abstract import Generic, Robot, Mixin
 from arcor2.object_types.utils import built_in_types_names, get_containing_module_sources, prepare_object_types_dir
 from arcor2.parameter_plugins.base import TypesDict
 from arcor2.source.utils import parse
@@ -38,12 +38,17 @@ def get_types_dict() -> TypesDict:
     return {k: v.type_def for k, v in glob.OBJECT_TYPES.items() if v.type_def is not None}
 
 
-def get_obj_type_data(scene: CachedScene, object_id: str) -> ObjectTypeData:
+def get_obj_type_by_id(scene: CachedScene, object_id: str) -> ObjectTypeData:
+
+    return get_obj_type(scene.object(object_id).type)
+
+
+def get_obj_type(obj_type: str) -> ObjectTypeData:
 
     try:
-        return glob.OBJECT_TYPES[scene.object(object_id).type]
+        return glob.OBJECT_TYPES[obj_type]
     except KeyError:
-        raise Arcor2Exception("Unknown object type.")
+        raise Arcor2Exception(f"Unknown object type {obj_type}.")
 
 
 def valid_object_types() -> ObjectTypeDict:
@@ -77,11 +82,15 @@ async def get_object_data(object_types: ObjectTypeDict, obj_id: str) -> None:
         return
 
     obj = await storage.get_object_type(obj_id)
+    desc = obj.description if not None else "N/A"
 
     if obj_id in glob.OBJECT_TYPES and glob.OBJECT_TYPES[obj_id].type_def is not None:
 
         stored_type_def = glob.OBJECT_TYPES[obj_id].type_def
         assert stored_type_def
+
+        if not obj.description:
+            desc = stored_type_def.description()
 
         # TODO do not compare sources but 'modified`
         # the code we get from type_def has Unix line endings, while the code from Project service might have Windows...
@@ -93,7 +102,7 @@ async def get_object_data(object_types: ObjectTypeDict, obj_id: str) -> None:
 
     try:
         bases = otu.base_from_source(obj.source, obj_id)
-        if bases and bases[0] not in object_types.keys() | built_in_types_names():
+        if bases and bases[0] not in object_types.keys() | built_in_types_names() | {Mixin.__name__}:
             glob.logger.debug(f"Getting base class {bases[0]} for {obj_id}.")
             await get_object_data(object_types, bases[0])
 
@@ -112,7 +121,7 @@ async def get_object_data(object_types: ObjectTypeDict, obj_id: str) -> None:
     except Arcor2Exception as e:
         glob.logger.warn(f"Disabling object type {obj.id}: can't get a base. {str(e)}")
         object_types[obj_id] = ObjectTypeData(
-            ObjectTypeMeta(obj_id, "Object type disabled.", disabled=True, problem="Can't get base.")
+            ObjectTypeMeta(obj_id, desc, disabled=True, problem="Can't get base.")
         )
         return
 
@@ -123,24 +132,39 @@ async def get_object_data(object_types: ObjectTypeDict, obj_id: str) -> None:
             hlp.save_and_import_type_def,
             obj.source,
             obj.id,
-            Generic,
+            object,
             settings.OBJECT_TYPE_PATH,
             settings.OBJECT_TYPE_MODULE,
         )
     except Arcor2Exception as e:
-        glob.logger.debug(f"{obj.id} is probably not an object type. {str(e)}")
+        glob.logger.warning(f"Disabling object type {obj.id}. Probably issue with imports. {str(e)}")
+        object_types[obj_id] = ObjectTypeData(
+            ObjectTypeMeta(obj_id, desc, disabled=True, problem=str(e))
+        )
         return
 
-    assert issubclass(type_def, Generic)
+    if issubclass(type_def, Mixin):
+        # TODO ignore for now, but it might be good to keep some info about known mixins...
+        return
+
+    if not issubclass(type_def, Generic):
+        glob.logger.warning(f"Disabling object type {obj.id}. Not a subclass of supported base type (Mixin or Generic).")
+        object_types[obj_id] = ObjectTypeData(
+            ObjectTypeMeta(obj_id, desc, disabled=True, problem="Not a subclass of supported base type.")
+        )
+        await hlp.run_in_executor(remove_object_type, obj.id)
+        return
+
+    desc = type_def.description()
 
     try:
         meta = meta_from_def(type_def)
         otu.get_settings_def(type_def)  # just to check if settings are ok
     except Arcor2Exception as e:
-        glob.logger.warning(f"Disabling object type {obj.id}.")
+        glob.logger.warning(f"Disabling object type {obj.id}: can't get meta and/or settings.")
         glob.logger.debug(e, exc_info=True)
         object_types[obj_id] = ObjectTypeData(
-            ObjectTypeMeta(obj_id, "Object type disabled.", disabled=True, problem=str(e))
+            ObjectTypeMeta(obj_id, desc, disabled=True, problem=str(e))
         )
         return
 
@@ -222,15 +246,18 @@ async def get_object_types() -> None:
 
     for obj_type in updated_object_types.values():
 
+        if obj_type.meta.disabled:
+            continue
+
         # if description is missing, try to get it from ancestor(s)
         if not obj_type.meta.description:
 
             try:
                 obj_type.meta.description = obj_description_from_base(glob.OBJECT_TYPES, obj_type.meta)
-            except otu.DataError as e:
+            except Arcor2Exception as e:
                 glob.logger.error(f"Failed to get info from base for {obj_type}, error: '{e}'.")
 
-        if not obj_type.meta.disabled and not obj_type.meta.built_in:
+        if not obj_type.meta.built_in:
             add_ancestor_actions(obj_type.meta.type, glob.OBJECT_TYPES)
 
     if not initialization:

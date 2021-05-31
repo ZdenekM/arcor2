@@ -15,7 +15,7 @@ from arcor2_arserver import globals as glob
 from arcor2_arserver import notifications as notif
 from arcor2_arserver.clients import persistent_storage as storage
 from arcor2_arserver.object_types.data import ObjectTypeData
-from arcor2_arserver.objects_actions import get_object_types
+from arcor2_arserver.objects_actions import get_object_types, get_obj_type_by_id
 from arcor2_arserver_data.events.common import ShowMainScreen
 from arcor2_arserver_data.events.scene import OpenScene, SceneClosed, SceneObjectChanged, SceneState
 
@@ -141,13 +141,12 @@ def check_object(scene: CachedScene, obj: SceneObject, new_one: bool = False) ->
 
     assert not obj.children
 
-    if obj.type not in glob.OBJECT_TYPES:
-        raise Arcor2Exception("Unknown object type.")
+    obj_type = get_obj_type_by_id(scene, obj.id)
 
-    obj_type = glob.OBJECT_TYPES[obj.type]
+    glob.logger.info(obj_type)
 
     if obj_type.meta.disabled:
-        raise Arcor2Exception("Object type disabled.")
+        raise Arcor2Exception(f"Object type {obj.type} is disabled. {obj_type.meta.problem}")
 
     check_object_parameters(obj_type, obj.parameters)
 
@@ -156,13 +155,13 @@ def check_object(scene: CachedScene, obj: SceneObject, new_one: bool = False) ->
         pass
 
     if obj_type.meta.has_pose and obj.pose is None:
-        raise Arcor2Exception("Object requires pose.")
+        raise Arcor2Exception(f"Object type {obj.type} requires pose.")
 
     if not obj_type.meta.has_pose and obj.pose is not None:
-        raise Arcor2Exception("Object do not have pose.")
+        raise Arcor2Exception(f"Object type {obj.type} do not have pose.")
 
     if obj_type.meta.abstract:
-        raise Arcor2Exception("Cannot instantiate abstract type.")
+        raise Arcor2Exception(f"Cannot instantiate abstract type {obj.type}.")
 
     if new_one:
 

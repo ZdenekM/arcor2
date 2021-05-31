@@ -20,7 +20,7 @@ from arcor2_arserver import notifications as notif
 from arcor2_arserver.clients import persistent_storage as storage
 from arcor2_arserver.helpers import ctx_read_lock, ctx_write_lock, ensure_locked, get_unlocked_objects, unique_name
 from arcor2_arserver.lock.exceptions import LockingException
-from arcor2_arserver.objects_actions import get_object_types, get_robot_instance
+from arcor2_arserver.objects_actions import get_object_types, get_robot_instance, get_obj_type
 from arcor2_arserver.project import (
     associated_projects,
     invalidate_joints_using_object_as_parent,
@@ -218,11 +218,7 @@ async def update_object_parameters_cb(req: srpc.s.UpdateObjectParameters.Request
     can_modify_scene()
 
     obj = scene.object(req.args.id)
-
-    if obj.type not in glob.OBJECT_TYPES:
-        raise Arcor2Exception("Unknown object type.")
-
-    obj_type = glob.OBJECT_TYPES[obj.type]
+    obj_type = get_obj_type(obj.type)
 
     check_object_parameters(obj_type, req.args.parameters)
 

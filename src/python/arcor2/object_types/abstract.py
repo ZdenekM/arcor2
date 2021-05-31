@@ -296,6 +296,10 @@ class Camera(GenericWithPose, metaclass=abc.ABCMeta):
         raise Arcor2NotImplemented()
 
 
+class Mixin:
+    pass
+
+
 __all__ = [
     Generic.__name__,
     GenericWithPose.__name__,
@@ -303,4 +307,5 @@ __all__ = [
     GenericException.__name__,
     RobotException.__name__,
     Camera.__name__,
+    Mixin.__name__
 ]

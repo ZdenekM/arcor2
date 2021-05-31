@@ -22,6 +22,7 @@ from arcor2_arserver.helpers import ctx_read_lock, ctx_write_lock, ensure_locked
 from arcor2_arserver.object_types.data import ObjectTypeData
 from arcor2_arserver.object_types.source import new_object_type
 from arcor2_arserver.object_types.utils import add_ancestor_actions, object_actions, remove_object_type
+from arcor2_arserver.objects_actions import get_obj_type
 from arcor2_arserver.robot import get_end_effector_pose
 from arcor2_arserver.scene import ensure_scene_started, scenes, update_scene_object_pose
 from arcor2_arserver_data import events as sevts
@@ -280,10 +281,8 @@ async def new_object_type_cb(req: srpc.o.NewObjectType.Request, ui: WsClient) ->
 
 async def get_object_actions_cb(req: srpc.o.GetActions.Request, ui: WsClient) -> srpc.o.GetActions.Response:
 
-    try:
-        return srpc.o.GetActions.Response(data=list(glob.OBJECT_TYPES[req.args.type].actions.values()))
-    except KeyError:
-        raise Arcor2Exception(f"Unknown object type: '{req.args.type}'.")
+    obj_type = get_obj_type(req.args.type)
+    return srpc.o.GetActions.Response(data=list(obj_type.actions.values()))
 
 
 async def get_object_types_cb(req: srpc.o.GetObjectTypes.Request, ui: WsClient) -> srpc.o.GetObjectTypes.Response:
@@ -300,10 +299,7 @@ async def delete_object_type_cb(req: srpc.o.DeleteObjectType.Request, ui: WsClie
 
     async with glob.LOCK.get_lock(req.dry_run):
 
-        try:
-            obj_type = glob.OBJECT_TYPES[req.args.id]
-        except KeyError:
-            raise Arcor2Exception("Unknown object type.")
+        obj_type = get_obj_type(req.args.id)
 
         if obj_type.meta.built_in:
             raise Arcor2Exception("Can't delete built-in type.")

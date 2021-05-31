@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from arcor2 import rest
-from arcor2.object_types.abstract import Settings
+from arcor2.object_types.abstract import Settings, Mixin
 
 
 @dataclass
@@ -11,7 +11,7 @@ class UrlSettings(Settings):
     url: str
 
 
-class FitCommonMixin:
+class FitCommonMixin(Mixin):
 
     if TYPE_CHECKING:
         settings = UrlSettings("")
