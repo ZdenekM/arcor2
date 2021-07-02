@@ -101,6 +101,18 @@ class FocusObjectStart(RPC):
     class Response(RPC.Response):
         pass
 
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+class FocusObjectCancel(RPC):
+    @dataclass
+    class Request(RPC.Request):
+        pass
+
+    @dataclass
+    class Response(RPC.Response):
+        pass
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 
@@ -110,7 +122,6 @@ class FocusObject(RPC):
     class Request(RPC.Request):
         @dataclass
         class Args(JsonSchemaMixin):
-            object_id: str
             point_idx: int
 
         args: Args
@@ -130,7 +141,7 @@ class FocusObject(RPC):
 class FocusObjectDone(RPC):
     @dataclass
     class Request(RPC.Request):
-        args: IdArgs
+        pass
 
     @dataclass
     class Response(RPC.Response):

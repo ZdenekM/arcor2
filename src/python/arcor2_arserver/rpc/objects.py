@@ -1,5 +1,7 @@
 import asyncio
-from typing import Dict, List
+from typing import Dict, List, Tuple
+
+from dataclasses import dataclass, field
 
 from websockets.server import WebSocketServerProtocol as WsClient
 
@@ -15,145 +17,103 @@ from arcor2.object_types.abstract import GenericWithPose, Robot
 from arcor2.source.utils import tree_to_str
 from arcor2_arserver import globals as glob
 from arcor2_arserver import notifications as notif
-from arcor2_arserver import objects_actions as osa
 from arcor2_arserver import settings
 from arcor2_arserver.clients import project_service as storage
-from arcor2_arserver.helpers import ctx_read_lock, ctx_write_lock, ensure_locked
+from arcor2_arserver.helpers import ctx_write_lock, ensure_write_locked
 from arcor2_arserver.object_types.data import ObjectTypeData
 from arcor2_arserver.object_types.source import new_object_type
 from arcor2_arserver.object_types.utils import add_ancestor_actions, object_actions, remove_object_type
 from arcor2_arserver.robot import check_eef_arm, get_end_effector_pose
-from arcor2_arserver.scene import ensure_scene_started, scenes, update_scene_object_pose
+from arcor2_arserver.scene import ensure_scene_started, scenes, update_scene_object_pose, get_instance
 from arcor2_arserver_data import events as sevts
 from arcor2_arserver_data import rpc as srpc
 
-FOCUS_OBJECT: Dict[str, Dict[int, Pose]] = {}  # object_id / idx, pose
-FOCUS_OBJECT_ROBOT: Dict[str, rpc.common.RobotArg] = {}  # key: object_id
+
+@dataclass
+class FocusedObject:
+
+    obj_id: str
+    robot: rpc.common.RobotArg
+    poses: Dict[int, Pose] = field(default_factory=dict)
 
 
-def clean_up_after_focus(obj_id: str) -> None:
-
-    try:
-        del FOCUS_OBJECT[obj_id]
-    except KeyError:
-        pass
-
-    try:
-        del FOCUS_OBJECT_ROBOT[obj_id]
-    except KeyError:
-        pass
+_focused_objects: Dict[str, FocusedObject] = {}  # key == user_name
 
 
 async def focus_object_start_cb(req: srpc.o.FocusObjectStart.Request, ui: WsClient) -> None:
-
-    # TODO this event should take long time, notify UI that robot is locked
-    async with ctx_read_lock(
-        [req.args.object_id, req.args.robot.robot_id], glob.USERS.user_name(ui), auto_unlock=False
-    ):
-
-        scene = glob.LOCK.scene_or_exception()
-
-        if glob.LOCK.project:
-            raise Arcor2Exception("Project has to be closed first.")
-
-        ensure_scene_started()
-
-        obj_id = req.args.object_id
-
-        if obj_id in FOCUS_OBJECT_ROBOT:
-            raise Arcor2Exception("Focusing already started.")
-
-        if obj_id not in glob.SCENE_OBJECT_INSTANCES:
-            raise Arcor2Exception("Unknown object.")
-
-        inst = await osa.get_robot_instance(req.args.robot.robot_id)
-        await check_eef_arm(inst, req.args.robot.arm_id, req.args.robot.end_effector)
-
-        robot_type = glob.OBJECT_TYPES[inst.__class__.__name__]
-        assert robot_type.robot_meta
-
-        obj_type = glob.OBJECT_TYPES[scene.object(obj_id).type].meta
-
-        if not obj_type.has_pose:
-            raise Arcor2Exception("Only available for objects with pose.")
-
-        if not obj_type.object_model or obj_type.object_model.type != Model3dType.MESH:
-            raise Arcor2Exception("Only available for objects with mesh model.")
-
-        assert obj_type.object_model.mesh
-
-        focus_points = obj_type.object_model.mesh.focus_points
-
-        if not focus_points:
-            raise Arcor2Exception("focusPoints not defined for the mesh.")
-
-        FOCUS_OBJECT_ROBOT[req.args.object_id] = req.args.robot
-        FOCUS_OBJECT[obj_id] = {}
-        glob.logger.info(f"Start of focusing for {obj_id}.")
-        return None
-
-
-async def focus_object_cb(req: srpc.o.FocusObject.Request, ui: WsClient) -> srpc.o.FocusObject.Response:
-
-    async with ctx_read_lock(req.args.object_id, glob.USERS.user_name(ui), auto_unlock=False):
-
-        scene = glob.LOCK.scene_or_exception()
-
-        if glob.LOCK.project:
-            raise Arcor2Exception("Project has to be closed first.")
-
-        obj_id = req.args.object_id
-        pt_idx = req.args.point_idx
-
-        if obj_id not in glob.SCENE_OBJECT_INSTANCES:
-            raise Arcor2Exception("Unknown object_id.")
-
-        obj_type = glob.OBJECT_TYPES[scene.object(obj_id).type].meta
-
-        assert obj_type.has_pose
-        assert obj_type.object_model
-        assert obj_type.object_model.mesh
-
-        focus_points = obj_type.object_model.mesh.focus_points
-
-        assert focus_points
-
-        if pt_idx < 0 or pt_idx > len(focus_points) - 1:
-            raise Arcor2Exception("Index out of range.")
-
-        if obj_id not in FOCUS_OBJECT:
-            glob.logger.info(f"Start of focusing for {obj_id}.")
-            FOCUS_OBJECT[obj_id] = {}
-
-        robot_id, end_effector, arm_id = FOCUS_OBJECT_ROBOT[obj_id].as_tuple()
-
-        FOCUS_OBJECT[obj_id][pt_idx] = await get_end_effector_pose(
-            await osa.get_robot_instance(robot_id), end_effector, arm_id
-        )
-
-        r = srpc.o.FocusObject.Response()
-        r.data = r.Data(finished_indexes=list(FOCUS_OBJECT[obj_id].keys()))
-        return r
-
-
-async def focus_object_done_cb(req: srpc.o.FocusObjectDone.Request, ui: WsClient) -> None:
 
     scene = glob.LOCK.scene_or_exception()
 
     if glob.LOCK.project:
         raise Arcor2Exception("Project has to be closed first.")
 
+    ensure_scene_started()
+
+    obj_id = req.args.object_id
+    scene_obj = scene.object(obj_id)
+
+    if obj_id in _focused_objects:
+        raise Arcor2Exception(f"Aiming already started for {scene_obj.name}.")
+
+    obj_type = glob.OBJECT_TYPES[scene_obj.type].meta
+
+    if not obj_type.has_pose:
+        raise Arcor2Exception("Only available for objects with pose.")
+
+    if not obj_type.object_model or obj_type.object_model.type != Model3dType.MESH:
+        raise Arcor2Exception("Only available for objects with mesh model.")
+
+    assert obj_type.object_model.mesh
+
+    focus_points = obj_type.object_model.mesh.focus_points
+
+    if not focus_points:
+        raise Arcor2Exception("focusPoints not defined for the mesh.")
+
     user_name = glob.USERS.user_name(ui)
 
-    obj_id = req.args.id
+    await ensure_write_locked(req.args.object_id, user_name)
+    await ensure_write_locked(req.args.robot.robot_id, user_name)
 
-    if obj_id not in FOCUS_OBJECT:
-        raise Arcor2Exception("focusObjectStart/focusObject has to be called first.")
+    await check_eef_arm(get_instance(req.args.robot.robot_id, Robot), req.args.robot.arm_id, req.args.robot.end_effector)
 
-    await ensure_locked(req.args.id, ui)
+    _focused_objects[user_name] = FocusedObject(req.args.object_id, req.args.robot)
+    glob.logger.info(f"Start of aiming for {obj_id}.")
 
-    obj_type = glob.OBJECT_TYPES[scene.object(obj_id).type].meta
 
+async def focus_check(ui: WsClient) -> Tuple[FocusedObject, str]:
+
+    user_name = glob.USERS.user_name(ui)
+
+    try:
+        fo = _focused_objects[user_name]
+    except KeyError:
+        raise Arcor2Exception("Aiming has to be started first.")
+
+    await ensure_write_locked(fo.obj_id, user_name)
+    await ensure_write_locked(fo.robot.robot_id, user_name)
+
+    return fo, user_name
+
+
+async def focus_object_cancel_cb(req: srpc.o.FocusObjectCancel.Request, ui: WsClient) -> None:
+
+    fo, user_name = await focus_check(ui)
+    _focused_objects.pop(user_name, None)
+    await glob.LOCK.write_unlock([fo.obj_id, fo.robot.robot_id], user_name, True)
+    if glob.LOCK.scene:
+        glob.logger.info(f"Aiming for {glob.LOCK.scene.object(fo.obj_id).name} cancelled by {user_name}.")
+
+
+async def focus_object_cb(req: srpc.o.FocusObject.Request, ui: WsClient) -> srpc.o.FocusObject.Response:
+
+    scene = glob.LOCK.scene_or_exception()
+    fo, user_name = await focus_check(ui)
+
+    pt_idx = req.args.point_idx
+    obj_type = glob.OBJECT_TYPES[scene.object(fo.obj_id).type].meta
+
+    assert obj_type.has_pose
     assert obj_type.object_model
     assert obj_type.object_model.mesh
 
@@ -161,46 +121,61 @@ async def focus_object_done_cb(req: srpc.o.FocusObjectDone.Request, ui: WsClient
 
     assert focus_points
 
-    if len(FOCUS_OBJECT[obj_id]) < len(focus_points):
-        raise Arcor2Exception("Not all points were done.")
+    if pt_idx < 0 or pt_idx > len(focus_points) - 1:
+        raise Arcor2Exception("Index out of range.")
 
-    obj = scene.object(obj_id)
+    robot_id, end_effector, arm_id = fo.robot.as_tuple()
+
+    fo.poses[pt_idx] = await get_end_effector_pose(get_instance(robot_id, Robot), end_effector, arm_id)
+
+    r = srpc.o.FocusObject.Response()
+    r.data = r.Data(finished_indexes=list(fo.poses.keys()))
+    return r
+
+
+async def focus_object_done_cb(req: srpc.o.FocusObjectDone.Request, ui: WsClient) -> None:
+
+    scene = glob.LOCK.scene_or_exception()
+    fo, user_name = await focus_check(ui)
+
+    obj_type = glob.OBJECT_TYPES[scene.object(fo.obj_id).type].meta
+    assert obj_type.object_model
+    assert obj_type.object_model.mesh
+
+    focus_points = obj_type.object_model.mesh.focus_points
+
+    assert focus_points
+
+    if len(fo.poses) < len(focus_points):
+        raise Arcor2Exception(f"Only {len(fo.poses)} points were done out of {len(focus_points)}.")
+
+    obj = scene.object(fo.obj_id)
     assert obj.pose
 
-    obj_inst = glob.SCENE_OBJECT_INSTANCES[obj_id]
-    assert isinstance(obj_inst, GenericWithPose)
+    obj_inst = get_instance(fo.obj_id, GenericWithPose)
 
     fp: List[Position] = []
     rp: List[Position] = []
 
-    for idx, pose in FOCUS_OBJECT[obj_id].items():
+    for idx, pose in fo.poses.items():
 
         fp.append(focus_points[idx].position)
         rp.append(pose.position)
 
     mfa = MeshFocusAction(fp, rp)
 
-    glob.logger.debug(f"Attempt to focus for object {obj_id}, data: {mfa}")
+    glob.logger.debug(f"Attempt to aim object {obj_inst.name}, data: {mfa}")
 
     try:
         new_pose = await scene_srv.focus(mfa)
     except scene_srv.SceneServiceException as e:
-        glob.logger.error(f"Focus failed with: {e}, mfa: {mfa}.")
-        raise Arcor2Exception("Focusing failed.") from e
-    finally:
-        to_unlock: List[str] = []
-        try:
-            to_unlock.append(FOCUS_OBJECT_ROBOT[obj_id].robot_id)
-        except KeyError:
-            ...
-        await glob.LOCK.read_unlock(to_unlock, user_name)
+        glob.logger.error(f"Aiming failed with: {e}, mfa: {mfa}.")
+        raise Arcor2Exception(f"Aiming failed. {str(e)}") from e
 
-    glob.logger.info(f"Done focusing for {obj_id}.")
+    glob.logger.info(f"Done aiming for {obj_inst.name}.")
 
-    clean_up_after_focus(obj_id)
-
-    asyncio.ensure_future(update_scene_object_pose(scene, obj, new_pose, obj_inst, user_name))
-
+    await glob.LOCK.write_unlock(fo.robot.robot_id, user_name, True)
+    asyncio.create_task(update_scene_object_pose(scene, obj, new_pose, obj_inst, user_name))
     return None
 
 
@@ -382,7 +357,7 @@ async def add_override_cb(req: srpc.o.AddOverride.Request, ui: WsClient) -> None
 
     obj = check_override(scene, project, req.args.id, req.args.override, add_new_one=True)
 
-    await ensure_locked(req.args.id, ui)
+    await ensure_write_locked(req.args.id, ui)
 
     if req.dry_run:
         return
@@ -406,7 +381,7 @@ async def update_override_cb(req: srpc.o.UpdateOverride.Request, ui: WsClient) -
 
     obj = check_override(scene, project, req.args.id, req.args.override)
 
-    await ensure_locked(req.args.id, ui)
+    await ensure_write_locked(req.args.id, ui)
 
     if req.dry_run:
         return
@@ -429,7 +404,7 @@ async def delete_override_cb(req: srpc.o.DeleteOverride.Request, ui: WsClient) -
 
     obj = check_override(scene, project, req.args.id, req.args.override)
 
-    await ensure_locked(req.args.id, ui)
+    await ensure_write_locked(req.args.id, ui)
 
     if req.dry_run:
         return
