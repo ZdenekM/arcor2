@@ -11,7 +11,7 @@ MODULE SERVER_LEFT
     PERS wobjdata currentWobj;
     PERS speeddata currentSpeed;
     PERS zonedata currentZone;
-    PERS confdata currentConf := [1, 0, 0, 11];
+    PERS confdata currentConf := [1, 0, 0, 4];
  
     !//PC communication
     VAR socketdev clientSocket;
@@ -50,8 +50,10 @@ MODULE SERVER_LEFT
     !//Robot Constants
     CONST jointtarget jposHomeYuMiL:=[[0,-130,30,0,40,0],[135,9E+09,9E+09,9E+09,9E+09,9E+09]];
     PERS tasks tasklistArms{2}:=[["T_ROB_L"],["T_ROB_R"]];
-    VAR syncident Sync_Start_Arms;
-    VAR syncident Sync_Stop_Arms;
+    VAR syncident Sync_Start_Arms_Pose; 
+    VAR syncident Sync_Stop_Arms_Pose;
+    VAR syncident Sync_Start_Arms_Joints;
+    VAR syncident Sync_Stop_Arms_Joints;
 
     !/////////////////////////////////////////////////////////////////////////////////////////////////////////
     !LOCAL METHODS
@@ -194,6 +196,7 @@ MODULE SERVER_LEFT
         VAR jointtarget jointsPose;
         !//Motion configuration
         ConfL\Off;
+        ConfJ\Off;
         SingArea\Wrist;
         moveCompleted:=TRUE;
         !//Initialization of WorkObject, Tool, Speed and Zone
@@ -412,9 +415,9 @@ MODULE SERVER_LEFT
                     IF isPoseReachable(cartesianTarget, currentTool, currentWobj) THEN
                         ok:=SERVER_OK;
                         moveCompleted:=FALSE;
-                        SyncMoveOn Sync_Start_Arms,tasklistArms;
+                        SyncMoveOn Sync_Start_Arms_Pose,tasklistArms;
                         MoveL cartesianTarget\ID:=11,currentSpeed,currentZone,currentTool\WObj:=currentWobj;
-                        SyncMoveOff Sync_Stop_Arms;
+                        SyncMoveOff Sync_Stop_Arms_Pose;
                         moveCompleted:=TRUE;
                     ELSE
                         addString := "Unreachable Pose";
@@ -431,9 +434,9 @@ MODULE SERVER_LEFT
                     jointsTarget:=[[params{1},params{2},params{3},params{4},params{5},params{6}],externalAxis];
                     ok:=SERVER_OK;
                     moveCompleted:=FALSE;
-                    SyncMoveOn Sync_Start_Arms,tasklistArms;
+                    SyncMoveOn Sync_Start_Arms_Joints,tasklistArms;
                     MoveAbsJ jointsTarget\ID:=12,currentSpeed,currentZone,currentTool\Wobj:=currentWobj;
-                    SyncMoveOff Sync_Stop_Arms;
+                    SyncMoveOff Sync_Stop_Arms_Joints;
                     moveCompleted:=TRUE;
                 ELSE
                     ok:=SERVER_BAD_MSG;
