@@ -11,11 +11,18 @@ from dataclasses import dataclass
 from threading import Lock
 from typing import Dict, Iterable, List, NamedTuple, Optional, Set, Tuple, cast
 
+from requests.auth import HTTPDigestAuth
+from requests import Session
+import ast
+import time
+import json
+import math
+
 import numpy as np
 import quaternion
 
 from arcor2 import transformations as tr
-from arcor2.data.common import IntEnum, Joint, Orientation, Pose, Position
+from arcor2.data.common import ActionMetadata, IntEnum, Joint, Orientation, Pose, Position, StrEnum
 from arcor2.exceptions import Arcor2Exception
 from arcor2.logging import get_logger
 from arcor2.object_types.abstract import MultiArmRobot, Settings
@@ -63,6 +70,162 @@ class YumiSettings(Settings):
 
         if not 0 < self.max_tcp_speed <= MAX_TCP_SPEED:
             raise YumiException("Invalid speed.")
+
+
+class RwsException(Arcor2Exception):
+    pass
+
+
+class RWS:
+    """Class for communicating with RobotWare through Robot Web Services (ABB's Rest API).
+
+    Inspired by https://github.com/prinsWindy/ABB-Robot-Machine-Vision
+    """
+
+    def __init__(self, base_url: str, username: str='Default User', password: str='robotics') -> None:
+        self._base_url = base_url
+        self._session = Session()  # creates persistent HTTP communication
+        self._session.auth = HTTPDigestAuth(username, password)
+        # headers={'Content-Type': 'application/x-www-form-urlencoded'}
+
+    def register_remote_user(self) -> None:
+        resp = self._session.post(f"{self._base_url}/users", data={"username": "ARCOR2 User", "application": "Arcor2Studio", "location": "Earth", "ulocale": "remote"})
+        if resp.status_code != 201:
+            raise RwsException(f"Could not login. {resp.text}")
+
+    def login_as_local_user(self) -> None:
+        resp = self._session.post(f"{self._base_url}/users?action=set-locale", data={"type": "local", "json": "1"})
+        if resp.status_code != 204:
+            raise RwsException(f"Could not login. {resp.text}")
+
+    def reset_pp(self) -> None:
+        """Resets the program pointer to main procedure in RAPID.
+        """
+
+        resp = self._session.post(self._base_url + '/rw/rapid/execution?action=resetpp', data={"json": "1"})
+        if resp.status_code != 204:
+            raise RwsException(f"Could not reset PP. {resp.text}")
+
+    def request_mastership(self) -> None:
+        resp = self._session.post(self._base_url + '/rw/mastership', params={"action": "request", "json": "1"}, headers={'Content-Type': 'application/x-www-form-urlencoded'})
+        if resp.status_code != 204:
+            raise RwsException(f"Could not get mastership. {json.loads(resp.text)['_embedded']['status']['msg']}")
+
+    def release_mastership(self) -> None:
+        resp = self._session.post(self._base_url + '/rw/mastership', params={"action": "release", "json": "1"}, headers={'Content-Type': 'application/x-www-form-urlencoded'})
+        if resp.status_code != 204:
+            raise RwsException(f"Could not release mastership. {json.loads(resp.text)['_embedded']['status']['msg']}")
+
+    def request_rmmp(self) -> None:
+        """RMMP (Request Manual Mode Privileges) is used to get privileges in manual mode. It is the counter part of Mastership request in auto mode. """
+
+        resp = self._session.post(self._base_url + '/users/rmmp', data={'privilege': 'modify', "json": "1"})
+        if resp.status_code != 204:
+            raise RwsException(f"Could not get rmmp. {resp.text}")
+
+    def cancel_rmmp(self) -> None:
+        resp = self._session.post(self._base_url + '/users/rmmp?action=cancel', data={"json": "1"})
+        if resp.status_code != 204:
+            raise RwsException(f"Could not cancel rmmp. {resp.text}")
+
+    def motors_on(self) -> None:
+        """Turns the robot's motors on.
+        Operation mode has to be AUTO.
+        """
+
+        payload = {'ctrl-state': 'motoron', "json": "1"}
+        resp = self._session.post(self._base_url + "/rw/panel/ctrlstate?action=setctrlstate", data=payload)
+
+        if resp.status_code != 204:
+            raise RwsException("Could not turn on motors. The controller might be in manual mode")
+
+    def motors_off(self) -> None:
+        """Turns the robot's motors off.
+        """
+
+        payload = {'ctrl-state': 'motoroff', "json": "1"}
+        resp = self._session.post(self._base_url + "/rw/panel/ctrlstate?action=setctrlstate", data=payload)
+
+        if resp.status_code != 204:
+            raise RwsException("Could not turn off motors.")
+
+    def start_RAPID(self) -> None:
+        """Resets program pointer to main procedure in RAPID and starts RAPID execution.
+        """
+
+        self.reset_pp()
+        payload = {'regain': 'continue', 'execmode': 'continue', 'cycle': 'forever', 'condition': 'none',
+                   'stopatbp': 'disabled', 'alltaskbytsp': 'false'}
+        resp = self._session.post(self._base_url + "/rw/rapid/execution?action=start&json=1", data=payload)
+        if resp.status_code != 204:
+            opmode = self.get_operation_mode()
+            ctrlstate = self.get_controller_state()
+
+            raise RwsException(f"""
+            Could not start RAPID. Possible causes:
+            * Operating mode might not be AUTO. Current opmode: {opmode}.
+            * Motors might be turned off. Current ctrlstate: {ctrlstate}.
+            * RAPID might have write access. 
+            """)
+
+    def stop_RAPID(self) -> None:
+        """Stops RAPID execution.
+        """
+
+        payload = {'stopmode': 'stop', 'usetsp': 'normal', "json": "1"}
+        resp = self._session.post(self._base_url + "/rw/rapid/execution?action=stop", data=payload)
+        if resp.status_code != 204:
+            raise RwsException('Could not stop RAPID execution')
+
+    def get_execution_state(self):
+        """Gets the execution state of the controller.
+        """
+
+        resp = self._session.get(self._base_url + "/rw/rapid/execution?json=1")
+
+        if resp.status_code != 200:
+            raise RwsException(f"Could not get execution state. {resp.text}")
+
+        json_string = resp.text
+        _dict = json.loads(json_string)
+        data = _dict["_embedded"]["_state"][0]["ctrlexecstate"]
+        return data
+
+    def is_running(self) -> bool:
+        """Checks the execution state of the controller and
+        """
+
+        execution_state = self.get_execution_state()
+        print(execution_state)
+        return execution_state == "running"
+
+    def get_operation_mode(self):
+        """Gets the operation mode of the controller.
+        """
+
+        resp = self._session.get(self._base_url + "/rw/panel/opmode?json=1")
+
+        if resp.status_code != 200:
+            raise RwsException(f"Could not get operation mode. {resp.text}")
+
+        json_string = resp.text
+        _dict = json.loads(json_string)
+        data = _dict["_embedded"]["_state"][0]["opmode"]
+        return data
+
+    def get_controller_state(self):
+        """Gets the controller state.
+        """
+
+        resp = self._session.get(self._base_url + "/rw/panel/ctrlstate?json=1")
+
+        if resp.status_code != 200:
+            raise RwsException(f"Could not get controller state. {resp.text}")
+
+        json_string = resp.text
+        _dict = json.loads(json_string)
+        data = _dict["_embedded"]["_state"][0]["ctrlstate"]
+        return data
 
 
 class CmdCodes(IntEnum):
@@ -132,16 +295,15 @@ class YuMiCommException(YumiException):
 
 
 class YuMiControlException(YumiException):
-    """Failure of control, typically due to a kinematically unreachable
-    pose."""
+    """Failure of control, typically due to a kinematically unreachable pose."""
 
-    def __init__(self, req_packet, res, *args) -> None:
+    def __init__(self, req_packet: RequestPacket, res: RawResponse, *args) -> None:
         super().__init__(*args)
         self.req_packet = req_packet
         self.res = res
 
     def __str__(self) -> str:
-        return "Failed Request!\nReq: {0}\nRes: {1}".format(self.req_packet, self.res)
+        return self.res.message
 
 
 def message_to_pose(message: str) -> Pose:
@@ -233,7 +395,7 @@ class YuMiArm:
     JOINTS = 7
 
     def __init__(
-        self, name: str, ip: str, port: int, bufsize: int = 4096, motion_timeout: float = 8.0, comm_timeout: float = 5.0
+        self, name: str, ip: str, port: int, bufsize: int, motion_timeout: float, comm_timeout: float
     ) -> None:
         """Initializes a YuMiArm interface. This interface will communicate
         with one arm (port) on the YuMi Robot. This uses a subprocess to handle
@@ -701,6 +863,12 @@ class YuMiArm:
         self._request(self._construct_req(CmdCodes.reset_home))
 
 
+class YumiArms(StrEnum):
+
+    LEFT: str = "left"
+    RIGHT: str = "right"
+
+
 class YuMi(MultiArmRobot):
     """Interface to both arms of an ABB YuMi robot.
 
@@ -714,9 +882,43 @@ class YuMi(MultiArmRobot):
 
         super().__init__(obj_id, name, pose, settings)
 
-        self._left = YuMiArm("left", settings.ip, 5000)
-        self._right = YuMiArm("right", settings.ip, 5001)
-        self._mapping: Dict[str, YuMiArm] = {"left": self._left, "right": self._right}
+        self._rws = RWS(f"http://{self.settings.ip}")
+
+        if self._rws.get_operation_mode() != "AUTO":
+            raise YumiException("Not in auto mode.")
+
+        self._rws.register_remote_user()
+
+        self._rws.request_mastership()
+        state = self._rws.get_controller_state()
+
+        # https://developercenter.robotstudio.com/api/rwsApi/panel_ctrlstate_get_page.html
+        if state == "emergencystop":
+            raise YumiException("Emergency stop is active.")
+        elif state == "sysfail":
+            raise YumiException("Robot needs to be restarted.")
+        elif state == "motoroff":
+            self._rws.motors_on()
+
+        # if self._rws.is_running():
+        #   self._rws.stop_RAPID()
+
+        # self._rws.start_RAPID()
+
+        for _ in range(10):
+            if self._rws.is_running():
+                break
+            time.sleep(1)
+        else:
+            raise YumiException("Could not start RAPID.")
+
+        self._buffsize = 4096
+        self._motion_timeout = 20.0
+        self._comm_timeout = 5.0
+
+        self._left = YuMiArm(YumiArms.LEFT, settings.ip, 5000, self._buffsize, self._motion_timeout, self._comm_timeout)
+        self._right = YuMiArm(YumiArms.RIGHT, settings.ip, 5001, self._buffsize, self._motion_timeout, self._comm_timeout)
+        self._mapping: Dict[str, YuMiArm] = {YumiArms.LEFT: self._left, YumiArms.RIGHT: self._right}
 
         # TODO set according to the used gripper
         # https://github.com/galou/yumipy/blob/robotware6_06/yumipy/yumi_constants.py#L117
@@ -725,6 +927,8 @@ class YuMi(MultiArmRobot):
 
         self._left.set_conf([0, 0, 0, 4])
         self._right.set_conf([0, 0, 0, 4])
+
+        self.calibrate_grippers()  # TODO only if not calibrated
 
     @property
     def settings(self) -> YumiSettings:
@@ -765,7 +969,10 @@ class YuMi(MultiArmRobot):
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 futures.append(executor.submit(self._left.joints))
                 futures.append(executor.submit(self._right.joints))
-            states = [f.result() for f in futures]
+            try:
+                states = [f.result(timeout=self._comm_timeout) for f in futures]
+            except concurrent.futures.TimeoutError:
+                raise YuMiCommException("Failed to get joints.")
 
             ret.extend(states[0])
             ret.extend(states[1])
@@ -860,8 +1067,94 @@ class YuMi(MultiArmRobot):
 
     def cleanup(self) -> None:
 
-        for arm in self.arms:
-            arm.terminate()
+        futures: List[concurrent.futures.Future] = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for arm in self.arms:
+                futures.append(executor.submit(arm.terminate))
+        try:
+            for f in concurrent.futures.as_completed(futures, self._comm_timeout):
+                f.result()
+        except concurrent.futures.TimeoutError:
+            raise YuMiCommException(f"Failed to terminate connection.")
+
+        self._rws.stop_RAPID()
+        self._rws.motors_off()
+        self._rws.release_mastership()
+
+    # ------------------------------------------------------------------------------------------------------------------
+
+    def move_arm(self, arm: YumiArms, pose: Pose, speed: float = 0.5, linear: bool = False, *, an: Optional[str] = None) -> None:
+        """
+        Moves the arm's TCP to the given pose.
+        :param arm: Selected arm.
+        :param pose: Target pose.
+        :param speed:
+        :param linear: Selects linear movement over the joints default one.
+        :return:
+        """
+
+        assert 0.0 <= speed <= 1.0
+
+        self.set_v(int(speed * self.settings.max_tcp_speed * METERS_TO_MM))
+        arm = self._arm_by_name(arm)
+
+        with self._move_lock:
+            arm.goto_pose(tr.make_pose_rel(self.pose, pose), linear)
+
+    move_arm.__action__ = ActionMetadata(blocking=True)  # type: ignore
+
+    def close_gripper(self, arm: YumiArms, force: float = 20.0, width: float = .0, *, an: Optional[str] = None) -> None:
+        """
+        Closes the gripper as close to as possible with maximum force.
+        :param arm: Selected arm.
+        :param force: Maximum force in newtons.
+        :param width: Target state in millimetres..
+        :return:
+        """
+
+        assert 0.0 <= force <= 20.0
+        assert 0.0 <= width <= 25.0
+
+        self._arm_by_name(arm).close_gripper(force, width)
+
+    close_gripper.__action__ = ActionMetadata(blocking=True)  # type: ignore
+
+    def open_gripper(self, arm: YumiArms, force: float = 20.0, width: float = 1.0, *, an: Optional[str] = None) -> None:
+        """
+        Opens the gripper to the target width.
+        :param arm: Selected arm.
+        :param force: Maximum force in newtons.
+        :param width: Target opening in millimetres.
+        :return:
+        """
+
+        assert 0.0 <= force <= 20.0
+        assert 0.0 <= width <= 25.0
+
+        self._arm_by_name(arm).open_gripper(force, width)
+
+    open_gripper.__action__ = ActionMetadata(blocking=True)  # type: ignore
+
+    def move_both_arms(self, left_pose: Pose, right_pose: Pose, speed: float = 0.5, *, an: Optional[str] = None) -> None:
+        """Commands both arms to go to assigned poses in sync. Sync means both motions will end at the same time."""
+
+        assert 0.0 <= speed <= 1.0
+
+        self.set_v(int(speed * self.settings.max_tcp_speed * METERS_TO_MM))
+
+        with self._move_lock:
+
+            futures: List[concurrent.futures.Future] = []
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures.append(executor.submit(self._left.goto_pose_sync, tr.make_pose_rel(self.pose, left_pose)))
+                futures.append(executor.submit(self._right.goto_pose_sync, tr.make_pose_rel(self.pose, right_pose)))
+            try:
+                for f in concurrent.futures.as_completed(futures, self._motion_timeout):
+                    f.result()
+            except concurrent.futures.TimeoutError:
+                raise YuMiCommException(f"Failed to move arms in sync..")
+
+    move_both_arms.__action__ = ActionMetadata(blocking=True)  # type: ignore
 
     # ------------------------------------------------------------------------------------------------------------------
 
@@ -892,30 +1185,15 @@ class YuMi(MultiArmRobot):
             If commanded pose triggers any motion errors that are catchable by RAPID sever.
         """
 
-        self._left.goto_joints_sync(left)
-        self._right.goto_joints_sync(right)
-
-    def goto_pose_sync(self, left_pose: Pose, right_pose: Pose) -> None:
-        """Commands both arms to go to assigned poses in sync. Sync means both
-        motions will end at the same time.
-
-        Parameters
-        ----------
-            left_pose : RigidTransform
-                    Target pose for left arm
-            right_pose : RigidTransform
-                    Target pose for right arm
-
-        Raises
-        ------
-        YuMiCommException
-            If communication times out or socket error.
-        YuMiControlException
-            If commanded pose triggers any motion errors that are catchable by RAPID sever.
-        """
-
-        self._left.goto_pose_sync(left_pose)
-        self._right.goto_pose_sync(right_pose)
+        futures: List[concurrent.futures.Future] = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures.append(executor.submit(self._left.goto_joints_sync, left))
+            futures.append(executor.submit(self._right.goto_joints_sync, right))
+        try:
+            for f in concurrent.futures.as_completed(futures, self._motion_timeout):
+                f.result()
+        except concurrent.futures.TimeoutError:
+            raise YuMiCommException(f"Failed to move to joints in sync.")
 
     def set_v(self, n: int) -> None:
         """Sets speed for both arms using n as the speed number.
@@ -932,8 +1210,17 @@ class YuMi(MultiArmRobot):
             If communication times out or socket error.
         """
         speed_data = self.get_v(n)
-        for arm in self.arms:
-            arm.set_speed(speed_data)
+
+        futures: List[concurrent.futures.Future] = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for arm in self.arms:
+                futures.append(executor.submit(arm.set_speed, speed_data))
+        try:
+            for f in concurrent.futures.as_completed(futures, self._comm_timeout):
+                f.result()
+        except concurrent.futures.TimeoutError:
+            raise YuMiCommException(f"Failed to move to joints in sync.")
+
 
     def set_z(self, name: str) -> None:
         """Sets zoning settings for both arms according to name.
@@ -949,36 +1236,44 @@ class YuMi(MultiArmRobot):
             If communication times out or socket error.
         """
         zone_data = self.get_z(name)
-        for arm in self.arms:
-            arm.set_zone(zone_data)
+
+        futures: List[concurrent.futures.Future] = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for arm in self.arms:
+                futures.append(executor.submit(arm.set_zone, zone_data))
+        try:
+            for f in concurrent.futures.as_completed(futures, self._comm_timeout):
+                f.result()
+        except concurrent.futures.TimeoutError:
+            raise YuMiCommException(f"Failed set zone data.")
 
     def set_tool(self, pose: Pose) -> None:
         """Sets TCP (Tool Center Point) for both arms using given pose as
         offset.
-
-        Parameters
-        ----------
-            pose : RigidTransform
-                Pose of new TCP as offset from the default TCP
-
-        Raises
-        ------
-        YuMiCommException
-            If communication times out or socket error.
         """
-        for arm in self.arms:
-            arm.set_tool(pose)
+
+        futures: List[concurrent.futures.Future] = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for arm in self.arms:
+                futures.append(executor.submit(arm.set_tool, pose))
+        try:
+            for f in concurrent.futures.as_completed(futures, self._comm_timeout):
+                f.result()
+        except concurrent.futures.TimeoutError:
+            raise YuMiCommException(f"Failed set tool.")
 
     def calibrate_grippers(self) -> None:
-        """Calibrates grippers for instantiated arms.
+        """Calibrates grippers for instantiated arms."""
 
-        Raises
-        ------
-        YuMiCommException
-            If communication times out or socket error.
-        """
-        for arm in self.arms:
-            arm.calibrate_gripper()
+        futures: List[concurrent.futures.Future] = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            for arm in self.arms:
+                futures.append(executor.submit(arm.calibrate_gripper))
+        try:
+            for f in concurrent.futures.as_completed(futures, self._motion_timeout):
+                f.result()
+        except concurrent.futures.TimeoutError:
+            raise YuMiCommException(f"Failed to calibrate grippers.")
 
     @staticmethod
     def construct_speed_data(tra: float, rot: float) -> Tuple[float, float, float, float]:
