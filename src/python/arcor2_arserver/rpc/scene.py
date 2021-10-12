@@ -211,11 +211,6 @@ async def add_object_to_scene_cb(req: srpc.s.AddObjectToScene.Request, ui: WsCli
 
         scene = glob.LOCK.scene_or_exception()
 
-        if glob.LOCK.project:
-            raise Arcor2Exception("Project has to be closed first.")
-
-        can_modify_scene()
-
         obj = common.SceneObject(req.args.name, req.args.type, req.args.pose, req.args.parameters)
 
         await add_object_to_scene(scene, obj, dry_run=req.dry_run)
@@ -331,13 +326,13 @@ async def action_param_values_cb(
 
 async def remove_from_scene_cb(req: srpc.s.RemoveFromScene.Request, ui: WsClient) -> None:
 
-    scene = glob.LOCK.scene_or_exception(ensure_project_closed=True)
+    scene = glob.LOCK.scene_or_exception()
     user_name = glob.USERS.user_name(ui)
 
     to_lock = await get_unlocked_objects(req.args.id, user_name)
     async with ctx_write_lock(to_lock, user_name, auto_unlock=req.dry_run):
 
-        can_modify_scene()
+        #can_modify_scene()
 
         if not req.args.force and {proj.name async for proj in projects_using_object(scene.id, req.args.id)}:
             raise Arcor2Exception("Can't remove object that is used in project(s).")
@@ -377,7 +372,7 @@ async def update_object_pose_using_robot_cb(req: srpc.o.UpdateObjectPoseUsingRob
     if req.args.id == req.args.robot.robot_id:
         raise Arcor2Exception("Robot cannot update its own pose.")
 
-    scene = glob.LOCK.scene_or_exception(ensure_project_closed=True)
+    scene = glob.LOCK.scene_or_exception()
     user_name = glob.USERS.user_name(ui)
 
     to_lock = await get_unlocked_objects([obj for obj in (req.args.robot.robot_id, req.args.id)], user_name)
@@ -441,7 +436,7 @@ async def update_object_pose_using_robot_cb(req: srpc.o.UpdateObjectPoseUsingRob
 
 async def update_object_pose_cb(req: srpc.s.UpdateObjectPose.Request, ui: WsClient) -> None:
 
-    scene = glob.LOCK.scene_or_exception(ensure_project_closed=True)
+    scene = glob.LOCK.scene_or_exception()
 
     if scene_started():
         try:
@@ -467,7 +462,7 @@ async def update_object_pose_cb(req: srpc.s.UpdateObjectPose.Request, ui: WsClie
 
 async def rename_object_cb(req: srpc.s.RenameObject.Request, ui: WsClient) -> None:
 
-    scene = glob.LOCK.scene_or_exception(ensure_project_closed=True)
+    scene = glob.LOCK.scene_or_exception()
     target_obj = scene.object(req.args.id)
 
     if target_obj.name == req.args.new_name:
@@ -674,10 +669,10 @@ async def add_virtual_collision_object_to_scene_cb(
 
         scene = glob.LOCK.scene_or_exception()
 
-        if glob.LOCK.project:
-            raise Arcor2Exception("Project has to be closed first.")
+        #if glob.LOCK.project:
+        #    raise Arcor2Exception("Project has to be closed first.")
 
-        can_modify_scene()
+        #can_modify_scene()
 
         if req.args.name in glob.OBJECT_TYPES:
             raise Arcor2Exception("ObjectType already exists.")

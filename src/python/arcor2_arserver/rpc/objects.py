@@ -329,8 +329,8 @@ async def new_object_type_cb(req: srpc.o.NewObjectType.Request, ui: WsClient) ->
 
 async def update_object_model_cb(req: srpc.o.UpdateObjectModel.Request, ui: WsClient) -> None:
 
-    can_modify_scene()
-    glob.LOCK.scene_or_exception(True)  # only allow while editing scene
+    #can_modify_scene()
+    glob.LOCK.scene_or_exception()  # only allow while editing scene
 
     obj_data = glob.OBJECT_TYPES[req.args.object_type_id]
 
