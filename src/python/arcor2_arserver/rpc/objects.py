@@ -26,7 +26,6 @@ from arcor2_arserver.object_types.utils import add_ancestor_actions, object_acti
 from arcor2_arserver.objects_actions import update_object_model
 from arcor2_arserver.robot import check_eef_arm, get_end_effector_pose
 from arcor2_arserver.scene import (
-    can_modify_scene,
     ensure_scene_started,
     get_instance,
     get_robot_instance,
@@ -60,8 +59,8 @@ async def object_aiming_start_cb(req: srpc.o.ObjectAimingStart.Request, ui: WsCl
 
     scene = glob.LOCK.scene_or_exception()
 
-    if glob.LOCK.project:
-        raise Arcor2Exception("Project has to be closed first.")
+    # if glob.LOCK.project:
+    #    raise Arcor2Exception("Project has to be closed first.")
 
     ensure_scene_started()
 
@@ -329,7 +328,7 @@ async def new_object_type_cb(req: srpc.o.NewObjectType.Request, ui: WsClient) ->
 
 async def update_object_model_cb(req: srpc.o.UpdateObjectModel.Request, ui: WsClient) -> None:
 
-    #can_modify_scene()
+    # can_modify_scene()
     glob.LOCK.scene_or_exception()  # only allow while editing scene
 
     obj_data = glob.OBJECT_TYPES[req.args.object_type_id]

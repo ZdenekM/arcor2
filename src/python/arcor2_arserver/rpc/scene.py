@@ -40,6 +40,7 @@ from arcor2_arserver.scene import (
     add_object_to_scene,
     can_modify_scene,
     clear_auto_remove_schedule,
+    create_object_instance,
     delete_if_not_used,
     ensure_scene_started,
     get_instance,
@@ -332,7 +333,7 @@ async def remove_from_scene_cb(req: srpc.s.RemoveFromScene.Request, ui: WsClient
     to_lock = await get_unlocked_objects(req.args.id, user_name)
     async with ctx_write_lock(to_lock, user_name, auto_unlock=req.dry_run):
 
-        #can_modify_scene()
+        # can_modify_scene()
 
         if not req.args.force and {proj.name async for proj in projects_using_object(scene.id, req.args.id)}:
             raise Arcor2Exception("Can't remove object that is used in project(s).")
@@ -669,10 +670,10 @@ async def add_virtual_collision_object_to_scene_cb(
 
         scene = glob.LOCK.scene_or_exception()
 
-        #if glob.LOCK.project:
+        # if glob.LOCK.project:
         #    raise Arcor2Exception("Project has to be closed first.")
 
-        #can_modify_scene()
+        # can_modify_scene()
 
         if req.args.name in glob.OBJECT_TYPES:
             raise Arcor2Exception("ObjectType already exists.")
@@ -718,7 +719,7 @@ async def add_virtual_collision_object_to_scene_cb(
 
         obj = common.SceneObject(req.args.name, req.args.name, req.args.pose)
         scene.upsert_object(obj)  # add_object_to_scene(scene, obj) would do some unnecessary checks
-
+        await create_object_instance(obj)
         evt2 = sevts.s.SceneObjectChanged(obj)
         evt2.change_type = Event.Type.ADD
         asyncio.ensure_future(notif.broadcast_event(evt2))
