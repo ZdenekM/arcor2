@@ -36,6 +36,7 @@ types-orjson==3.6.2
 types-setuptools==57.4.7
 types-requests==2.27.7
 types-PyYAML==6.0.3
+typing_extensions==4.0.1
 typing-inspect==0.7.1
 urdfpy==0.0.22
 websocket-client==1.2.3

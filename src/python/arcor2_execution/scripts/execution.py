@@ -28,7 +28,7 @@ from arcor2.data import common, compile_json_schemas
 from arcor2.data import rpc as arcor2_rpc
 from arcor2.data.events import Event, PackageInfo, PackageState, ProjectException
 from arcor2.exceptions import Arcor2Exception
-from arcor2.helpers import port_from_url, run_in_executor
+from arcor2.helpers import port_from_url, run_in_executor, run_in_executor_ext
 from arcor2.logging import get_aiologger
 from arcor2_execution_data import EVENTS, URL, events, rpc
 from arcor2_execution_data.common import PackageSummary, ProjectMeta
@@ -174,7 +174,7 @@ async def run_package_cb(req: rpc.RunPackage.Request, ui: WsClient) -> None:
     package_path = os.path.join(PROJECT_PATH, req.args.id)
 
     try:
-        await run_in_executor(os.chdir, package_path, propagate=[FileNotFoundError])
+        await run_in_executor_ext(None, [FileNotFoundError], os.chdir, package_path)
     except FileNotFoundError:
         raise Arcor2Exception("Not found.")
 
@@ -334,7 +334,7 @@ async def _upload_package_cb(req: rpc.UploadPackage.Request, ui: WsClient) -> No
         await check_script(script_path)
 
         try:
-            await run_in_executor(shutil.rmtree, target_path, propagate=[FileNotFoundError])
+            await run_in_executor_ext(None, [FileNotFoundError], shutil.rmtree, target_path)
         except FileNotFoundError:
             pass
         await run_in_executor(shutil.copytree, tmpdirname, target_path)
@@ -391,7 +391,7 @@ async def delete_package_cb(req: rpc.DeletePackage.Request, ui: WsClient) -> Non
     package_summary = await get_summary(target_path)
 
     try:
-        await run_in_executor(shutil.rmtree, target_path, propagate=[FileNotFoundError])
+        await run_in_executor_ext(None, [FileNotFoundError], shutil.rmtree, target_path)
     except FileNotFoundError:
         raise Arcor2Exception("Not found.")
 

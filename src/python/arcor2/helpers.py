@@ -8,10 +8,11 @@ import sys
 from concurrent import futures
 from contextlib import closing
 from threading import Lock
-from typing import Any, Callable, Optional, TypeVar
+from typing import Callable, Optional, TypeVar
 
 import humps
 from packaging.version import Version, parse
+from typing_extensions import ParamSpec
 
 from arcor2.exceptions import Arcor2Exception
 
@@ -55,16 +56,33 @@ def is_valid_type(value: str) -> None:
 
 
 S = TypeVar("S")
+P = ParamSpec("P")
 
 
 async def run_in_executor(
-    func: Callable[..., S],
-    *args: Any,
-    executor: Optional[futures.Executor] = None,
-    propagate: Optional[list[type[Exception]]] = None,
+    func: Callable[P, S],
+    *args: P.args,
+    **kwargs: P.kwargs,
 ) -> S:
     """Executes synchronous function in an executor. Catches all exceptions are
     re-raises them as Arcor2Exception.
+
+    :param func:
+    :param args:
+    :return:
+    """
+
+    return await run_in_executor_ext(None, None, func, *args, **kwargs)
+
+
+async def run_in_executor_ext(
+    executor: Optional[futures.Executor],
+    propagate: Optional[list[type[Exception]]],
+    func: Callable[P, S],
+    *args: P.args,
+    **kwargs: P.kwargs,  # TODO maybe with Concatenate, executor/propagate can be merged into P.kwargs
+) -> S:
+    """Extended version, with few more parameters.
 
     :param func:
     :param args:
@@ -73,8 +91,8 @@ async def run_in_executor(
     :return:
     """
 
-    # TODO user typing.ParamSpec instead of *args: Any (Python 3.10 or typing-extensions)
-    # ...not supported by mypy at the moment, see https://github.com/python/mypy/issues/8645
+    if kwargs:
+        raise NotImplementedError("kwargs are not supported at the moment.")
 
     try:
         return await asyncio.get_event_loop().run_in_executor(executor, func, *args)
