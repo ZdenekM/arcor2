@@ -1,4 +1,6 @@
 import asyncio
+import math
+import os
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
@@ -6,11 +8,9 @@ from websockets.server import WebSocketServerProtocol as WsClient
 
 from arcor2 import helpers as hlp
 from arcor2.cached import CachedProject, CachedScene
-from arcor2.clients import aio_scene_service as scene_srv
 from arcor2.data import events, rpc
 from arcor2.data.common import Parameter, Pose, Position, SceneObject
 from arcor2.data.object_type import Model3dType
-from arcor2.data.scene import MeshFocusAction
 from arcor2.exceptions import Arcor2Exception
 from arcor2.object_types.abstract import CollisionObject, GenericWithPose, Robot
 from arcor2.source.utils import tree_to_str
@@ -34,6 +34,9 @@ from arcor2_arserver.scene import (
 )
 from arcor2_arserver_data import events as sevts
 from arcor2_arserver_data import rpc as srpc
+
+POSE1 = Pose.from_json(os.environ["EXP_POSE1"])
+POSE2 = Pose.from_json(os.environ["EXP_POSE2"])
 
 
 @dataclass
@@ -235,23 +238,14 @@ async def object_aiming_done_cb(req: srpc.o.ObjectAimingDone.Request, ui: WsClie
     if req.dry_run:
         return
 
-    fp: list[Position] = []
-    rp: list[Position] = []
+    centroid: Position = sum([pose.position for pose in fo.poses.values()], Position()) * (1.0 / len(fo.poses))
 
-    for idx, pose in fo.poses.items():
-
-        fp.append(focus_points[idx].position)
-        rp.append(pose.position)
-
-    mfa = MeshFocusAction(fp, rp)
-
-    logger.debug(f"Attempt to aim object {obj_inst.name}, data: {mfa}")
-
-    try:
-        new_pose = await scene_srv.focus(mfa)  # TODO how long does it take?
-    except scene_srv.SceneServiceException as e:
-        logger.error(f"Aiming failed with: {e}, mfa: {mfa}.")
-        raise Arcor2Exception(f"Aiming failed. {str(e)}") from e
+    if math.dist(centroid, POSE1.position) < math.dist(centroid, POSE2.position):
+        new_pose = POSE1
+        logger.info("POSE1")
+    else:
+        new_pose = POSE2
+        logger.info("POSE2")
 
     logger.info(f"Done aiming for {obj_inst.name}.")
 
@@ -556,15 +550,3 @@ async def delete_override_cb(req: srpc.o.DeleteOverride.Request, ui: WsClient) -
     evt.change_type = events.Event.Type.REMOVE
     evt.parent_id = req.args.id
     asyncio.ensure_future(notif.broadcast_event(evt))
-
-
-async def object_type_usage_cb(req: srpc.o.ObjectTypeUsage.Request, ui: WsClient) -> srpc.o.ObjectTypeUsage.Response:
-
-    resp = srpc.o.ObjectTypeUsage.Response()
-    resp.data = set()  # mypy does not recognize it correctly with Response(data=set())
-
-    async for scene in scenes():
-        if req.args.id in scene.object_types:
-            resp.data.add(scene.id)
-
-    return resp
