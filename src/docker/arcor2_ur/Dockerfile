@@ -1,4 +1,4 @@
-FROM ubuntu:24.04 AS deps
+FROM ubuntu:noble-20241011 AS deps
 COPY src.python.arcor2_ur.scripts/ur.pex /binary.pex
 RUN apt-get update && apt-get install -y -q --no-install-recommends \
     python3=3.12.3-0ubuntu2

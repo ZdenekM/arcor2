@@ -4,4 +4,4 @@ services:
       - ROBOT_IP=192.168.104.149
     volumes:
       - ./robot_calibration.yaml:/root/robot_calibration.yaml
-    network_mode: host  # ObjectType has to connect to localhost:5012
+    network_mode: "host"  # ObjectType has to connect to localhost:5012

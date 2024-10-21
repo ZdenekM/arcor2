@@ -17,6 +17,7 @@ from moveit.planning import MoveItPy, PlanningComponent  # pants: no-infer-dep
 from moveit_configs_utils import MoveItConfigsBuilder  # pants: no-infer-dep
 from rclpy.node import Node  # pants: no-infer-dep
 from sensor_msgs.msg import JointState  # pants: no-infer-dep
+from std_msgs.msg import String  # pants: no-infer-dep
 from std_srvs.srv import Trigger  # pants: no-infer-dep
 from tf2_geometry_msgs import do_transform_pose  # pants: no-infer-dep
 from tf2_ros.buffer import Buffer  # pants: no-infer-dep
@@ -120,6 +121,8 @@ class MyNode(Node):
         self._set_payload_client = self.create_client(SetPayload, SET_PAYLOAD_SRV)
         while not self._set_payload_client.wait_for_service(timeout_sec=1.0):
             logger.warning(f"Service {SET_PAYLOAD_SRV} not available, waiting again...")
+
+        self.script_cmd_pub = self.create_publisher(String, "/urscript_interface/script_command", 1)
 
     def brake_release(self) -> None:
         if not self.interact_with_dashboard:
@@ -634,6 +637,123 @@ def put_eef_pose() -> RespT:
     globs.state.node.set_payload(payload)
 
     plan_and_execute(globs.state.moveitpy, globs.state.ur_manipulator, logger)
+
+    return Response(status=204)
+
+
+@app.route("/suck", methods=["PUT"])
+@requires_started
+def put_suck() -> RespT:
+    """Turn on suction.
+    ---
+    put:
+        description: Get the current state.
+        tags:
+           - Robot
+        parameters:
+            - name: channel
+              in: query
+              schema:
+                type: integer
+                minimum: 0
+                maximum: 2
+                default: 2
+              description: Tells which channel to be gripped with (0 = Channel A, 1 = Channel B, 2 = Channel A and Channel B).
+            - name: vacuum
+              in: query
+              schema:
+                type: integer
+                minimum: 0
+                maximum: 80
+                default: 60
+              description: Tells how hard to grasp in the range of 0% to 80 % vacuum.
+            - name: timeout
+              in: query
+              schema:
+                type: number
+                format: float
+                minimum: 0
+                maximum: 10
+                default: 2
+              description: Tells how long to wait for commanded vacuum to be achieved. If vacuum is not achieved, an air leakage at the workpiece or vacuum cups is reported in a popup and the robot program stops.
+        responses:
+            204:
+              description: Ok
+            500:
+              description: "Error types: **General**, **StartError**."
+              content:
+                application/json:
+                  schema:
+                    $ref: WebApiError
+    """
+
+    assert globs.state
+
+    channel = int(request.args.get("channel", default=2))
+    vacuum = int(request.args.get("vacuum", default=60))
+    timeout = float(request.args.get("timeout", default=2.0))
+
+    msg = String()
+    msg.data = f"vg10_grip({channel},{vacuum},{timeout})"
+    globs.state.node.script_cmd_pub.publish(msg)
+
+    # after execution of a script, the program for external control gets stopped
+    time.sleep(1)  # TODO how do we know when the script is finished?
+    globs.state.node.play()
+
+    return Response(status=204)
+
+
+@app.route("/release", methods=["PUT"])
+@requires_started
+def put_release() -> RespT:
+    """Turn off suction.
+    ---
+    put:
+        description: Get the current state.
+        tags:
+           - Robot
+        parameters:
+            - name: channel
+              in: query
+              schema:
+                type: integer
+                minimum: 0
+                maximum: 2
+                default: 2
+              description: Tells which channel to be released (0 = Channel A, 1 = Channel B, 2 = Channel A and Channel B).
+            - name: timeout
+              in: query
+              schema:
+                type: number
+                format: float
+                minimum: 0
+                maximum: 10
+                default: 2
+              description: Tells how long to wait for vacuum to be removed.
+        responses:
+            204:
+              description: Ok
+            500:
+              description: "Error types: **General**, **StartError**."
+              content:
+                application/json:
+                  schema:
+                    $ref: WebApiError
+    """
+
+    assert globs.state
+
+    channel = int(request.args.get("channel", default=2))
+    timeout = float(request.args.get("timeout", default=2.0))
+
+    msg = String()
+    msg.data = f"vg10_release({channel},{timeout})"
+    globs.state.node.script_cmd_pub.publish(msg)
+
+    # after execution of a script, the program for external control gets stopped
+    time.sleep(1)  # TODO how do we know when the script is finished?
+    globs.state.node.play()
 
     return Response(status=204)
 

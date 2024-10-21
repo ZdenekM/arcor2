@@ -83,6 +83,15 @@ class Ur5e(Robot):
                 params={"velocity": speed, "payload": payload},
             )
 
+    def suck(self, *, an: None | str = None) -> None:
+        """Turns on the suction."""
+        rest.call(rest.Method.PUT, f"{self.settings.url}/suck")
+
+    def release(self, *, an: None | str = None) -> None:
+        """Turns off the suction."""
+
+        rest.call(rest.Method.PUT, f"{self.settings.url}/release")
+
     def robot_joints(self, include_gripper: bool = False) -> list[Joint]:
         return rest.call(rest.Method.GET, f"{self.settings.url}/joints", list_return_type=Joint)
 
