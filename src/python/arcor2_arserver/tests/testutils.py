@@ -57,7 +57,8 @@ def start_processes(request) -> Iterator[None]:
         try:
             processes = []
             my_env = os.environ.copy()
-            kwargs = {"env": my_env, "stdout": sp.PIPE, "stderr": sp.STDOUT}
+            my_env["ARCOR2_REST_API_DEBUG"] = "true"
+            kwargs = {"env": my_env, "stdout": sp.PIPE, "stderr": sp.STDOUT, "start_new_session": True}
 
             project_port = find_free_port()
             project_url = f"http://0.0.0.0:{project_port}"

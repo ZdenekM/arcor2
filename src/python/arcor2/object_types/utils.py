@@ -163,6 +163,9 @@ def get_settings_def(type_def: type[Generic]) -> type[Settings]:
     else:
         settings_cls = param.annotation
 
+    if not isinstance(settings_cls, type):
+        raise Arcor2Exception("Settings annotation is not a class.")
+
     if not is_dataclass(settings_cls):
         raise Arcor2Exception("Settings misses @dataclass decorator.")
 
@@ -206,7 +209,7 @@ def iterate_over_actions(
 ) -> Iterator[tuple[str, Callable[[Any,], Any]]]:
     for method_name, method in inspect.getmembers(type_def, inspect.isroutine):
         try:
-            if not isinstance(method.__action__, ActionMetadata):
+            if not isinstance(method.__action__, ActionMetadata):  # type: ignore
                 continue
         except AttributeError:
             continue
