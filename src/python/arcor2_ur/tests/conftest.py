@@ -9,7 +9,7 @@ from typing import Iterator, NamedTuple
 import pytest
 
 from arcor2.helpers import find_free_port
-from arcor2_arserver.tests.testutils import CheckHealthException, check_health, finish_processes, log_proc_output
+from arcor2_arserver.tests.testutils import CheckHealthException, check_health, finish_processes  # , log_proc_output
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,13 +34,14 @@ def start_processes(request) -> Iterator[Urls]:
     pypath = ":".join(sys.path)
     my_env["PYTHONPATH"] = pypath
 
-    kwargs = {"env": my_env, "stdout": sp.PIPE, "stderr": sp.STDOUT, "start_new_session": True}
+    kwargs = {"env": my_env, "stdout": sp.PIPE, "stderr": sp.STDOUT, "preexec_fn": os.setpgrp}
 
     processes.append(
         sp.Popen(  # type: ignore
             [
                 "ros2",
                 "launch",
+                "-d",
                 "ur_robot_driver",
                 "ur_control.launch.py",
                 "launch_rviz:=false",
@@ -51,10 +52,24 @@ def start_processes(request) -> Iterator[Urls]:
             **kwargs,
         )
     )
-    time.sleep(3)  # TODO find another way how to make sure that everything is running
+    # time.sleep(3)  # TODO find another way how to make sure that everything is running
+
+    print("[DEBUG] Spouštím ros2 launch...")
+
+    # Čteme prvních pár řádků výstupu pro debugging
+    for _ in range(20):
+        line = processes[-1].stdout.readline()
+        if not line:
+            break
+        print(f"[ros2 launch]: {line.strip()}", flush=True)
+        time.sleep(0.5)
+
     if processes[-1].poll():
-        log_proc_output(processes[-1].communicate())
-        raise Exception("Launch died...")
+        # log_proc_output(processes[-1].communicate())
+        stdout, stderr = processes[-1].communicate()
+        print(f"[ros2 launch output]:\n{stdout}")
+        print(f"[ros2 launch error]:\n{stderr}")
+        pytest.exit("Launch died...", returncode=2)
 
     robot_url = f"http://0.0.0.0:{find_free_port()}"
     my_env["ARCOR2_UR_URL"] = robot_url
@@ -69,13 +84,13 @@ def start_processes(request) -> Iterator[Urls]:
 
     if robot_proc.poll():
         finish_processes(processes)
-        raise Exception("Robot service died.")
+        pytest.exit("Robot service died.", returncode=2)
 
     try:
         check_health("UR", robot_url, timeout=20)
     except CheckHealthException:
         finish_processes(processes)
-        raise
+        pytest.exit("Robot service not responding.", returncode=2)
 
     # robot_mode etc. is not published with mock_hw -> there is this helper node to do that
     # it can't be published from here as it depends on ROS (Python 3.12)
@@ -84,7 +99,7 @@ def start_processes(request) -> Iterator[Urls]:
 
     if robot_pub_proc.poll():
         finish_processes(processes)
-        raise Exception("Robot publisher node died.")
+        pytest.exit("Robot publisher node died.", returncode=2)
 
     yield Urls(ros_domain_id, robot_url)
 
