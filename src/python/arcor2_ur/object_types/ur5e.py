@@ -5,7 +5,7 @@ from typing import cast
 from dataclasses_jsonschema import JsonSchemaMixin
 
 from arcor2 import rest
-from arcor2.data.common import ActionMetadata, Joint, Pose, StrEnum
+from arcor2.data.common import ActionMetadata, Joint, Pose, Position, StrEnum
 from arcor2.data.robot import InverseKinematicsRequest
 from arcor2.object_types.abstract import Robot, Settings
 
@@ -111,6 +111,61 @@ class Ur5e(Robot):
                 f"{self.settings.url}/eef/pose",
                 body=pose,
                 params={"velocity": speed, "payload": payload, "safe": safe},
+            )
+
+    def move_to_position(
+        self,
+        position: Position,
+        speed: float = 50.0,
+        safe: bool = True,
+        payload: float = 0.0,
+        *,
+        an: None | str = None,
+    ) -> None:
+        """Moves the robot's end-effector to a specific position while keeping
+        current orientation.
+
+        :param position: Target position.
+        :param speed: Relative speed.
+        :param safe: Avoid collisions.
+        :param payload: Object weight.
+        """
+        assert 0.0 <= speed <= 100.0
+        assert 0.0 <= payload <= 5.0
+
+        with self._move_lock:
+            rest.call(
+                rest.Method.PUT,
+                f"{self.settings.url}/eef/position",
+                body=position,
+                params={"velocity": speed, "payload": payload, "safe": safe},
+            )
+
+    def move_to_joints(
+        self,
+        target_joints: list[Joint],
+        speed: float,
+        safe: bool = True,
+        payload: float = 0.0,
+        *,
+        an: None | str = None,
+    ) -> None:
+        """Sets target joint values.
+
+        :param target_joints: Desired joints.
+        :param speed: Relative speed (0-1).
+        :param safe: Avoid collisions.
+        :param payload: Object weight.
+        """
+        assert 0.0 <= speed <= 1.0
+        assert 0.0 <= payload <= 5.0
+
+        with self._move_lock:
+            rest.call(
+                rest.Method.PUT,
+                f"{self.settings.url}/joints",
+                body=target_joints,
+                params={"velocity": speed * 100, "payload": payload, "safe": safe},
             )
 
     def suck(

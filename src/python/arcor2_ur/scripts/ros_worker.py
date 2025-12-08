@@ -1,4 +1,5 @@
 import importlib
+import math
 import multiprocessing
 import threading
 import time
@@ -9,7 +10,7 @@ import rclpy  # pants: no-infer-dep
 from geometry_msgs.msg import Pose as RosPose  # pants: no-infer-dep
 from geometry_msgs.msg import PoseStamped  # pants: no-infer-dep
 from moveit.planning import MoveItPy, PlanningComponent  # pants: no-infer-dep
-from moveit_msgs.msg import CollisionObject  # pants: no-infer-dep
+from moveit_msgs.msg import CollisionObject, Constraints, JointConstraint, OrientationConstraint  # pants: no-infer-dep
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup  # pants: no-infer-dep
 from rclpy.node import Node  # pants: no-infer-dep
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy  # pants: no-infer-dep
@@ -25,7 +26,7 @@ from ur_msgs.srv import SetPayload, SetSpeedSliderFraction  # pants: no-infer-de
 
 from arcor2 import transformations as tr
 from arcor2.data import common, object_type
-from arcor2.data.common import Joint, Pose
+from arcor2.data.common import Joint, Pose, Position
 from arcor2.data.robot import InverseKinematicsRequest
 from arcor2.logging import get_logger
 from arcor2_ur import topics
@@ -349,6 +350,7 @@ class RosWorkerRuntime:
         self.ur_manipulator: PlanningComponent | None = None
         self._switch_controller_client: Any = None
         self._list_controllers_client: Any = None
+        self._group_link_names: list[str] = []
 
         rclpy.init()
         self.node = MyNode(
@@ -399,6 +401,11 @@ class RosWorkerRuntime:
 
         self.moveitpy = MoveItPy(node_name="moveit_py", config_dict=moveit_config_dict)
         self.ur_manipulator = self.moveitpy.get_planning_component(self.planning_group_name)
+        robot_model = self.moveitpy.get_robot_model()
+        joint_model_group = robot_model.get_joint_model_group(self.planning_group_name)
+        if joint_model_group is None:
+            raise UrGeneral(f"Planning group '{self.planning_group_name}' not found in robot model.")
+        self._group_link_names = list(joint_model_group.link_model_names)
 
         moveitpy, _ = self._get_moveit()
         with moveitpy.get_planning_scene_monitor().read_write() as scene:
@@ -526,6 +533,20 @@ class RosWorkerRuntime:
     def get_eef_pose(self) -> dict:
         return self._current_pose().to_dict()
 
+    def _allow_environment_collisions(self, scene) -> None:
+        if not self._group_link_names or not self.collision_objects:
+            return
+        for obj_id in self.collision_objects:
+            for link in self._group_link_names:
+                scene.allowed_collision_matrix.set_entry(obj_id, link, True)
+
+    def _restore_environment_collisions(self, scene) -> None:
+        if not self._group_link_names or not self.collision_objects:
+            return
+        for obj_id in self.collision_objects:
+            for link in self._group_link_names:
+                scene.allowed_collision_matrix.set_entry(obj_id, link, False)
+
     def _latest_transform_time(self) -> rclpy.time.Time | None:
         try:
             transform = self.node.buffer.lookup_transform(self.base_link, self.tool_link, rclpy.time.Time())
@@ -578,44 +599,163 @@ class RosWorkerRuntime:
             raise UrGeneral("Freedrive mode is active. Disable hand teaching before commanding motion.")
 
         target_abs = Pose.from_dict(pose.to_dict())
+        ik_request = InverseKinematicsRequest(pose=target_abs, start_joints=self.joints, avoid_collisions=safe)
+        joints = [Joint.from_dict(j) for j in self.inverse_kinematics(ik_request)]
+        self.move_to_joints(joints, velocity, payload, safe)
+        self._wait_for_pose_reached(target_abs)
+        return {}
+
+    def move_to_position(self, position: Position, velocity: float, payload: float, safe: bool) -> dict:
+        if self.freedrive_mode:
+            raise UrGeneral("Freedrive mode is active. Disable hand teaching before commanding motion.")
+
+        current_pose = self._current_pose()
+        target_pose = Pose(Position(position.x, position.y, position.z), current_pose.orientation)
+
+        target_rel = tr.make_pose_rel(self.base_pose, target_pose)
         previous_transform_time = self._latest_transform_time()
         previous_joints = list(self.joints)
-        pose = tr.make_pose_rel(self.base_pose, pose)
 
         pose_goal = PoseStamped()
         pose_goal.header.frame_id = self.base_link
+        pose_goal.pose.orientation.x = target_rel.orientation.x
+        pose_goal.pose.orientation.y = target_rel.orientation.y
+        pose_goal.pose.orientation.z = target_rel.orientation.z
+        pose_goal.pose.orientation.w = target_rel.orientation.w
+        pose_goal.pose.position.x = target_rel.position.x
+        pose_goal.pose.position.y = target_rel.position.y
+        pose_goal.pose.position.z = target_rel.position.z
 
-        pose_goal.pose.orientation.x = pose.orientation.x
-        pose_goal.pose.orientation.y = pose.orientation.y
-        pose_goal.pose.orientation.z = pose.orientation.z
-        pose_goal.pose.orientation.w = pose.orientation.w
-        pose_goal.pose.position.x = pose.position.x
-        pose_goal.pose.position.y = pose.position.y
-        pose_goal.pose.position.z = pose.position.z
+        orientation_constraint = OrientationConstraint()
+        orientation_constraint.header.frame_id = self.base_link
+        orientation_constraint.link_name = self.tool_link
+        orientation_constraint.orientation = pose_goal.pose.orientation
+        orientation_constraint.absolute_x_axis_tolerance = 1.0
+        orientation_constraint.absolute_y_axis_tolerance = 1.0
+        orientation_constraint.absolute_z_axis_tolerance = 1.0
+        orientation_constraint.weight = 1.0
+
+        path_constraints = Constraints()
+        path_constraints.orientation_constraints.append(orientation_constraint)
 
         moveitpy, ur_manipulator = self._get_moveit()
-        with moveitpy.get_planning_scene_monitor().read_write() as scene:
-            if safe:
-                apply_collision_objects(scene, self.collision_objects, self.base_pose, self.base_link)
-            else:
-                scene.remove_all_collision_objects()
+        try:
+            with moveitpy.get_planning_scene_monitor().read_write() as scene:
+                if safe:
+                    apply_collision_objects(scene, self.collision_objects, self.base_pose, self.base_link)
+                else:
+                    scene.remove_all_collision_objects()
+                    self._allow_environment_collisions(scene)
 
-            scene.current_state.update(force=True)
-            scene.current_state.joint_positions = {j.name: j.value for j in self.joints}
-            scene.current_state.update()
+                scene.current_state.update(force=True)
+                scene.current_state.joint_positions = {j.name: j.value for j in self.joints}
+                scene.current_state.update()
+                start_state = scene.current_state.__copy__()
 
-        ur_manipulator.set_start_state_to_current_state()
-        ur_manipulator.set_goal_state(pose_stamped_msg=pose_goal, pose_link=self.tool_link)
+                goal_state = scene.current_state.__copy__()
+                if not goal_state.set_from_ik(self.planning_group_name, pose_goal.pose, self.tool_link, timeout=3):
+                    raise UrGeneral("Can't get IK!")
+                goal_state.update()
 
-        self.node.set_speed_slider(velocity)
-        self.node.set_payload(payload)
+                if safe and scene.is_state_colliding(
+                    robot_state=start_state, joint_model_group_name=self.planning_group_name, verbose=True
+                ):
+                    raise UrGeneral("Start state is in collision.")
+                if safe and scene.is_state_colliding(
+                    robot_state=goal_state, joint_model_group_name=self.planning_group_name, verbose=True
+                ):
+                    raise UrGeneral("Target state is in collision.")
 
-        plan_and_execute(moveitpy, ur_manipulator, logger)
+            ur_manipulator.set_start_state(robot_state=start_state)
+            ur_manipulator.set_path_constraints(path_constraints)
+            ur_manipulator.set_goal_state(robot_state=goal_state)
 
-        # TODO why is this needed (for tests to pass)?
+            self.node.set_speed_slider(velocity)
+            self.node.set_payload(payload)
+
+            try:
+                plan_and_execute(moveitpy, ur_manipulator, logger)
+            finally:
+                ur_manipulator.set_path_constraints(Constraints())
+        finally:
+            if not safe:
+                with moveitpy.get_planning_scene_monitor().read_write() as scene:
+                    self._restore_environment_collisions(scene)
+                    apply_collision_objects(scene, self.collision_objects, self.base_pose, self.base_link)
+
+        final_pose = self._current_pose()
+        target_orientation = current_pose.orientation.as_quaternion()
+        final_orientation = final_pose.orientation.as_quaternion()
+
+        delta_orientation = target_orientation.inverse() * final_orientation
+        clamped_w = max(-1.0, min(1.0, float(delta_orientation.w)))
+        angle_error = 2.0 * math.acos(clamped_w)
+        if angle_error > 0.02:
+            logger.error("Orientation drift %.4f rad detected during move_to_position.", angle_error)
+            raise UrGeneral("Target orientation was not preserved.")
+
         self._wait_for_joint_update(previous_joints)
         self._wait_for_transform_update(previous_transform_time)
-        self._wait_for_pose_reached(target_abs)
+        self._wait_for_pose_reached(target_pose)
+        return {}
+
+    def move_to_joints(self, joints: list[Joint], velocity: float, payload: float, safe: bool) -> dict:
+        if self.freedrive_mode:
+            raise UrGeneral("Freedrive mode is active. Disable hand teaching before commanding motion.")
+
+        if len(joints) != len(self.joints):
+            raise UrGeneral(f"Wrong number of joints! Should be {len(self.joints)}.")
+
+        target = {j.name: j.value for j in joints}
+        for current in self.joints:
+            if current.name not in target:
+                raise UrGeneral(f"Joint '{current.name}' missing in target.")
+
+        previous_transform_time = self._latest_transform_time()
+        previous_joints = list(self.joints)
+
+        joint_constraints = []
+        for name, value in target.items():
+            jc = JointConstraint()
+            jc.joint_name = name
+            jc.position = value
+            jc.tolerance_above = 1e-3
+            jc.tolerance_below = 1e-3
+            jc.weight = 1.0
+            joint_constraints.append(jc)
+
+        goal_constraints = Constraints()
+        goal_constraints.joint_constraints = joint_constraints
+
+        moveitpy, ur_manipulator = self._get_moveit()
+        try:
+            with moveitpy.get_planning_scene_monitor().read_write() as scene:
+                if safe:
+                    apply_collision_objects(scene, self.collision_objects, self.base_pose, self.base_link)
+                else:
+                    scene.remove_all_collision_objects()
+                    self._allow_environment_collisions(scene)
+
+                scene.current_state.update(force=True)
+                scene.current_state.joint_positions = {j.name: j.value for j in self.joints}
+                scene.current_state.update()
+                start_state = scene.current_state
+
+            ur_manipulator.set_start_state(robot_state=start_state)
+            ur_manipulator.set_goal_state(motion_plan_constraints=[goal_constraints])
+
+            self.node.set_speed_slider(velocity)
+            self.node.set_payload(payload)
+
+            plan_and_execute(moveitpy, ur_manipulator, logger)
+        finally:
+            if not safe:
+                with moveitpy.get_planning_scene_monitor().read_write() as scene:
+                    self._restore_environment_collisions(scene)
+                    apply_collision_objects(scene, self.collision_objects, self.base_pose, self.base_link)
+
+        self._wait_for_joint_update(previous_joints)
+        self._wait_for_transform_update(previous_transform_time)
         return {}
 
     def get_joints(self) -> list[dict]:
@@ -635,6 +775,7 @@ class RosWorkerRuntime:
                 apply_collision_objects(scene, self.collision_objects, self.base_pose, self.base_link)
             else:
                 scene.remove_all_collision_objects()
+                self._allow_environment_collisions(scene)
 
             scene.current_state.update(force=True)
             scene.current_state.joint_positions = {j.name: j.value for j in ikr.start_joints}
@@ -642,6 +783,13 @@ class RosWorkerRuntime:
 
             try:
                 if not scene.current_state.set_from_ik(self.planning_group_name, pose_goal, self.tool_link, timeout=3):
+                    logger.error(
+                        "IK failed (avoid_collisions=%s) for pose x=%.4f y=%.4f z=%.4f.",
+                        ikr.avoid_collisions,
+                        pose_goal.position.x,
+                        pose_goal.position.y,
+                        pose_goal.position.z,
+                    )
                     raise UrGeneral("Can't get IK!")
 
                 scene.current_state.update()
@@ -653,10 +801,10 @@ class RosWorkerRuntime:
                     and ikr.avoid_collisions
                 ):
                     raise UrGeneral("State is in collision.")
-            except UrGeneral:
+            finally:
                 if not ikr.avoid_collisions:
+                    self._restore_environment_collisions(scene)
                     apply_collision_objects(scene, self.collision_objects, self.base_pose, self.base_link)
-                raise
 
             if len(scene.current_state.joint_positions) != len(self.joints):
                 raise UrGeneral("Joint count mismatch.")
@@ -769,6 +917,12 @@ def ros_worker_main(
                 elif op == "move_to_pose":
                     pose = Pose.from_dict(kwargs["pose"])
                     result = runtime.move_to_pose(pose, kwargs["velocity"], kwargs["payload"], kwargs["safe"])
+                elif op == "move_to_position":
+                    position = Position.from_dict(kwargs["position"])
+                    result = runtime.move_to_position(position, kwargs["velocity"], kwargs["payload"], kwargs["safe"])
+                elif op == "move_to_joints":
+                    joints = [Joint.from_dict(j) for j in kwargs["joints"]]
+                    result = runtime.move_to_joints(joints, kwargs["velocity"], kwargs["payload"], kwargs["safe"])
                 elif op == "get_joints":
                     result = runtime.get_joints()
                 elif op == "ik":

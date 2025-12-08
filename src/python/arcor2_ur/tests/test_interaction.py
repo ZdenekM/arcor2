@@ -1,3 +1,4 @@
+import math
 import time
 
 import pytest
@@ -22,14 +23,6 @@ def test_basics(start_processes: Urls) -> None:
 
     assert len(ot.robot_joints()) == 6
     pos = ot.get_end_effector_pose("")
-    orig_z = pos.position.z
-    pos.position.z -= 0.05
-    ot.move_to_pose("", pos, 0.5)
-    pos_after = ot.get_end_effector_pose("")
-    assert orig_z - pos_after.position.z > 0.045
-
-    ot.suck()
-    ot.release()
 
     assert scene_service.collision_ids() == {box.id}
 
@@ -47,6 +40,32 @@ def test_basics(start_processes: Urls) -> None:
 
     scene_service.delete_all_collisions()
     assert not scene_service.collision_ids()
+
+    orig_z = pos.position.z
+    pos.position.z -= 0.05
+    ot.move_to_pose("", pos, 0.5)
+    pos_after = ot.get_end_effector_pose("")
+    assert orig_z - pos_after.position.z > 0.045
+
+    locked_target = Position(pos_after.position.x, pos_after.position.y, pos_after.position.z + 0.02)
+    orientation_before = pos_after.orientation
+    ot.move_to_position(locked_target, 50)
+    locked_pose = ot.get_end_effector_pose("")
+    delta_orientation = orientation_before.as_quaternion().inverse() * locked_pose.orientation.as_quaternion()
+    clamped_w = max(-1.0, min(1.0, float(delta_orientation.w)))
+    assert 2.0 * math.acos(clamped_w) < 0.02
+    assert locked_pose.position.z - pos_after.position.z > 0.015
+
+    joints = ot.robot_joints()
+    joints[0].value -= 0.05
+    ot.move_to_joints(joints, 0.5)
+    moved_joints = ot.robot_joints()
+    assert abs(moved_joints[0].value - joints[0].value) < 0.01
+    for original, moved in zip(joints[1:], moved_joints[1:]):
+        assert abs(original.value - moved.value) < 0.005
+
+    ot.suck()
+    ot.release()
 
     ot.move_to_pose("", pos, 0.5)
 

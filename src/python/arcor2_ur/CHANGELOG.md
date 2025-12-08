@@ -2,6 +2,13 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
+## [1.7.0] - 2025-12-08
+
+### Added
+
+- Endpoint `PUT /eef/position` to move the end-effector while keeping its current orientation.
+- Endpoint `PUT /joints` to move the robot using joint targets.
+
 ## [1.6.0] - 2025-12-05
 
 ### Added
