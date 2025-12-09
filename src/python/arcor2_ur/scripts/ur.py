@@ -13,7 +13,7 @@ from moveit_configs_utils import MoveItConfigsBuilder  # pants: no-infer-dep
 
 from arcor2 import env
 from arcor2.data import common, object_type
-from arcor2.data.common import Joint, Pose
+from arcor2.data.common import Joint, Pose, Position
 from arcor2.data.robot import InverseKinematicsRequest
 from arcor2.flask import RespT, create_app, run_app
 from arcor2.helpers import port_from_url
@@ -712,6 +712,68 @@ def put_eef_pose() -> RespT:
     safe = request.args.get("safe", default="true") == "true"
 
     globs.state.worker.request("move_to_pose", pose=pose.to_dict(), velocity=velocity, payload=payload, safe=safe)
+    return Response(status=204)
+
+
+@app.route("/eef/position", methods=["PUT"])
+@requires_started
+def put_eef_position() -> RespT:
+    """Move EEF to position with current orientation.
+    ---
+    put:
+        description: Move end-effector to a given position while keeping current orientation.
+        tags:
+           - Robot
+        parameters:
+            - name: velocity
+              in: query
+              schema:
+                type: number
+                format: float
+                minimum: 0
+                maximum: 100
+                default: 50
+            - name: payload
+              in: query
+              schema:
+                type: number
+                format: float
+                minimum: 0
+                maximum: 5
+                default: 0
+            - in: query
+              name: safe
+              schema:
+                type: boolean
+                default: true
+        requestBody:
+              content:
+                application/json:
+                  schema:
+                    $ref: Position
+        responses:
+            200:
+              description: Ok
+            500:
+              description: "Error types: **General**, **UrGeneral**, **StartError**, **NotFound**."
+              content:
+                application/json:
+                  schema:
+                    $ref: WebApiError
+    """
+    assert globs.state
+
+    if not isinstance(request.json, dict):
+        raise UrGeneral("Body should be a JSON dict containing Position.")
+
+    position = Position.from_dict(request.json)
+    velocity = float(request.args.get("velocity", default=50.0)) / 100.0
+    payload = float(request.args.get("payload", default=0.0))
+    safe = request.args.get("safe", default="true") == "true"
+
+    globs.state.worker.request(
+        "move_to_position", position=position.to_dict(), velocity=velocity, payload=payload, safe=safe
+    )
     return Response(status=204)
 
 

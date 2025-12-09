@@ -9,7 +9,7 @@ import rclpy  # pants: no-infer-dep
 from geometry_msgs.msg import Pose as RosPose  # pants: no-infer-dep
 from geometry_msgs.msg import PoseStamped  # pants: no-infer-dep
 from moveit.planning import MoveItPy, PlanningComponent  # pants: no-infer-dep
-from moveit_msgs.msg import CollisionObject  # pants: no-infer-dep
+from moveit_msgs.msg import CollisionObject, Constraints, OrientationConstraint  # pants: no-infer-dep
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup  # pants: no-infer-dep
 from rclpy.node import Node  # pants: no-infer-dep
 from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy  # pants: no-infer-dep
@@ -25,7 +25,7 @@ from ur_msgs.srv import SetPayload, SetSpeedSliderFraction  # pants: no-infer-de
 
 from arcor2 import transformations as tr
 from arcor2.data import common, object_type
-from arcor2.data.common import Joint, Pose
+from arcor2.data.common import Joint, Pose, Position
 from arcor2.data.robot import InverseKinematicsRequest
 from arcor2.logging import get_logger
 from arcor2_ur import topics
@@ -38,6 +38,7 @@ logger = get_logger(__name__)
 FREEDRIVE_KEEPALIVE_PERIOD = 0.1
 WORKSPACE_MIN = (-1.0, -1.0, -0.1)  # range of UR5e is 850mm
 WORKSPACE_MAX = (1.0, 1.0, 1.0)
+ORIENTATION_TOLERANCE = 0.3
 
 
 class CollisionObjectTuple(NamedTuple):
@@ -73,13 +74,13 @@ def plan_and_execute(
     else:
         plan_result = planning_component.plan()
 
-    if plan_result:
-        logger.info("Executing plan")
-        robot_trajectory = plan_result.trajectory
-        if not robot.execute(robot_trajectory, controllers=[]):
-            raise UrGeneral("Trajectory execution failed.")
-    else:
+    if not plan_result:
         raise UrGeneral("Planning failed")
+
+    logger.info("Executing plan")
+    robot_trajectory = plan_result.trajectory
+    if not robot.execute(robot_trajectory, controllers=[]):
+        raise UrGeneral("Trajectory execution failed.")
 
     time.sleep(sleep_time)
 
@@ -254,7 +255,7 @@ class MyNode(Node):
             raise UrGeneral("Invalid speed.")
 
         future = self._set_speed_slider_client.call_async(SetSpeedSliderFraction.Request(speed_slider_fraction=value))
-        response = wait_for_future(future)
+        response = wait_for_future(future, timeout_sec=5.0)
 
         if response is None:
             raise UrGeneral("Service call failed!")
@@ -575,15 +576,7 @@ class RosWorkerRuntime:
             time.sleep(0.02)
         raise UrGeneral("Target pose was not reached.")
 
-    def move_to_pose(self, pose: Pose, velocity: float, payload: float, safe: bool) -> dict:
-        if self.freedrive_mode:
-            raise UrGeneral("Freedrive mode is active. Disable hand teaching before commanding motion.")
-
-        target_abs = Pose.from_dict(pose.to_dict())
-        previous_transform_time = self._latest_transform_time()
-        previous_joints = list(self.joints)
-        pose = tr.make_pose_rel(self.base_pose, pose)
-
+    def _pose_to_pose_stamped(self, pose: Pose) -> PoseStamped:
         pose_goal = PoseStamped()
         pose_goal.header.frame_id = self.base_link
 
@@ -595,7 +588,9 @@ class RosWorkerRuntime:
         pose_goal.pose.position.y = pose.position.y
         pose_goal.pose.position.z = pose.position.z
 
-        moveitpy, ur_manipulator = self._get_moveit()
+        return pose_goal
+
+    def _prepare_planning_scene(self, moveitpy: MoveItPy, safe: bool) -> None:
         with moveitpy.get_planning_scene_monitor().read_write() as scene:
             if safe:
                 apply_collision_objects(scene, self.collision_objects, self.base_pose, self.base_link)
@@ -606,20 +601,78 @@ class RosWorkerRuntime:
             scene.current_state.joint_positions = {j.name: j.value for j in self.joints}
             scene.current_state.update()
 
+    def _build_orientation_constraints(self, orientation) -> Constraints:
+        orientation_constraint = OrientationConstraint()
+        orientation_constraint.header.frame_id = self.base_link
+        orientation_constraint.link_name = self.tool_link
+        orientation_constraint.orientation = orientation
+        orientation_constraint.absolute_x_axis_tolerance = ORIENTATION_TOLERANCE
+        orientation_constraint.absolute_y_axis_tolerance = ORIENTATION_TOLERANCE
+        orientation_constraint.absolute_z_axis_tolerance = ORIENTATION_TOLERANCE
+        orientation_constraint.weight = 1.0
+
+        constraints = Constraints()
+        constraints.orientation_constraints.append(orientation_constraint)
+        return constraints
+
+    def _execute_motion(
+        self,
+        pose_goal: PoseStamped,
+        velocity: float,
+        payload: float,
+        safe: bool,
+        target_abs: Pose,
+        path_constraints: Constraints | None,
+    ) -> dict:
+        previous_transform_time = self._latest_transform_time()
+        previous_joints = list(self.joints)
+
+        moveitpy, ur_manipulator = self._get_moveit()
+        self._prepare_planning_scene(moveitpy, safe)
+
         ur_manipulator.set_start_state_to_current_state()
         ur_manipulator.set_goal_state(pose_stamped_msg=pose_goal, pose_link=self.tool_link)
+        if path_constraints:
+            ur_manipulator.set_path_constraints(path_constraints)
         ur_manipulator.set_workspace(*WORKSPACE_MIN, *WORKSPACE_MAX)  # not documented anywhere :-D
 
         self.node.set_speed_slider(velocity)
         self.node.set_payload(payload)
 
-        plan_and_execute(moveitpy, ur_manipulator, logger)
+        try:
+            plan_and_execute(moveitpy, ur_manipulator, logger)
+        finally:
+            if path_constraints:
+                ur_manipulator.set_path_constraints(Constraints())
 
-        # TODO why is this needed (for tests to pass)?
         self._wait_for_joint_update(previous_joints)
         self._wait_for_transform_update(previous_transform_time)
         self._wait_for_pose_reached(target_abs)
         return {}
+
+    def move_to_pose(self, pose: Pose, velocity: float, payload: float, safe: bool) -> dict:
+        if self.freedrive_mode:
+            raise UrGeneral("Freedrive mode is active. Disable hand teaching before commanding motion.")
+
+        target_abs = Pose.from_dict(pose.to_dict())
+        pose_goal = self._pose_to_pose_stamped(tr.make_pose_rel(self.base_pose, pose))
+
+        return self._execute_motion(
+            pose_goal, velocity, payload, safe, target_abs, self._build_orientation_constraints(pose_goal.pose.orientation)
+        )
+
+    def move_to_position(self, position: Position, velocity: float, payload: float, safe: bool) -> dict:
+        if self.freedrive_mode:
+            raise UrGeneral("Freedrive mode is active. Disable hand teaching before commanding motion.")
+
+        current_pose = self._current_pose()
+        target_abs = Pose(Position(position.x, position.y, position.z), current_pose.orientation)
+        rel_pose = tr.make_pose_rel(self.base_pose, target_abs)
+        pose_goal = self._pose_to_pose_stamped(rel_pose)
+
+        return self._execute_motion(
+            pose_goal, velocity, payload, safe, target_abs, self._build_orientation_constraints(pose_goal.pose.orientation)
+        )
 
     def get_joints(self) -> list[dict]:
         return [joint.to_dict() for joint in self.joints]
@@ -772,6 +825,9 @@ def ros_worker_main(
                 elif op == "move_to_pose":
                     pose = Pose.from_dict(kwargs["pose"])
                     result = runtime.move_to_pose(pose, kwargs["velocity"], kwargs["payload"], kwargs["safe"])
+                elif op == "move_to_position":
+                    position = Position.from_dict(kwargs["position"])
+                    result = runtime.move_to_position(position, kwargs["velocity"], kwargs["payload"], kwargs["safe"])
                 elif op == "get_joints":
                     result = runtime.get_joints()
                 elif op == "ik":

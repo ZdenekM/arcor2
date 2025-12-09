@@ -5,7 +5,7 @@ from typing import cast
 from dataclasses_jsonschema import JsonSchemaMixin
 
 from arcor2 import rest
-from arcor2.data.common import ActionMetadata, Joint, Pose, StrEnum
+from arcor2.data.common import ActionMetadata, Joint, Pose, Position, StrEnum
 from arcor2.data.robot import InverseKinematicsRequest
 from arcor2.object_types.abstract import Robot, Settings
 
@@ -113,6 +113,28 @@ class Ur5e(Robot):
                 params={"velocity": speed, "payload": payload, "safe": safe},
             )
 
+    def move_to_position(
+        self, position: Position, speed: float = 50.0, safe: bool = True, payload: float = 0.0, *, an: None | str = None
+    ) -> None:
+        """Move the end-effector to a position while keeping orientation.
+
+        :param position: Target position.
+        :param speed: Relative speed.
+        :param safe: Avoid collisions.
+        :param payload: Object weight.
+        """
+
+        assert 0.0 <= speed <= 100.0
+        assert 0.0 <= payload <= 5.0
+
+        with self._move_lock:
+            rest.call(
+                rest.Method.PUT,
+                f"{self.settings.url}/eef/position",
+                body=position,
+                params={"velocity": speed, "payload": payload, "safe": safe},
+            )
+
     def suck(
         self,
         vacuum: int = 60,
@@ -166,6 +188,78 @@ class Ur5e(Robot):
     def robot_joints(self, include_gripper: bool = False) -> list[Joint]:
         return rest.call(rest.Method.GET, f"{self.settings.url}/joints", list_return_type=Joint)
 
+    def pick(
+        self,
+        pick_pose: Pose,
+        velocity: float = 50.0,
+        vertical_offset: float = 0.05,
+        safe_approach: bool = True,
+        safe_pick: bool = False,
+        payload: float = 0.0,
+        *,
+        an: None | str = None,
+    ) -> None:
+        """Picks an item from given pose while keeping tool orientation.
+
+        :param pick_pose: Where to pick an object.
+        :param velocity: Speed of move (percent).
+        :param vertical_offset: Vertical offset for pre/post pick pose.
+        :param safe_approach: Safe approach to the pre-pick position.
+        :param safe_pick: Safe picking movements.
+        :param payload: Object weight.
+        """
+
+        assert 0.0 <= velocity <= 100.0
+        assert vertical_offset >= 0.0
+        assert 0.0 <= payload <= 5.0
+
+        approach_pose = Pose.from_dict(pick_pose.to_dict())
+        approach_pose.position.z += vertical_offset
+
+        target_position = Position(pick_pose.position.x, pick_pose.position.y, pick_pose.position.z)
+        retreat_position = Position(approach_pose.position.x, approach_pose.position.y, approach_pose.position.z)
+
+        self.move(approach_pose, velocity, safe=safe_approach, payload=payload)  # pre-pick pose
+        self.move_to_position(target_position, velocity, safe=safe_pick, payload=payload)  # pick pose
+        self.suck()
+        self.move_to_position(retreat_position, velocity, safe=False, payload=payload)  # back to pre-pick pose
+
+    def place(
+        self,
+        place_pose: Pose,
+        velocity: float = 50.0,
+        vertical_offset: float = 0.05,
+        safe_approach: bool = True,
+        safe_place: bool = False,
+        payload: float = 0.0,
+        *,
+        an: None | str = None,
+    ) -> None:
+        """Places an item to a given pose while keeping tool orientation.
+
+        :param place_pose: Where to place the object.
+        :param velocity: Speed of move (percent).
+        :param vertical_offset: Vertical offset for pre/post place pose.
+        :param safe_approach: Safe approach to the pre-place position.
+        :param safe_place: Safe placement movements.
+        :param payload: Object weight.
+        """
+
+        assert 0.0 <= velocity <= 100.0
+        assert vertical_offset >= 0.0
+        assert 0.0 <= payload <= 5.0
+
+        approach_pose = Pose.from_dict(place_pose.to_dict())
+        approach_pose.position.z += vertical_offset
+
+        target_position = Position(place_pose.position.x, place_pose.position.y, place_pose.position.z)
+        retreat_position = Position(approach_pose.position.x, approach_pose.position.y, approach_pose.position.z)
+
+        self.move(approach_pose, velocity, safe=safe_approach, payload=payload)  # pre-place pose
+        self.move_to_position(target_position, velocity, safe=safe_place, payload=payload)  # place pose
+        self.release()
+        self.move_to_position(retreat_position, velocity, safe=False, payload=payload)  # back to pre-place pose
+
     def inverse_kinematics(
         self,
         end_effector_id: str,
@@ -190,3 +284,6 @@ class Ur5e(Robot):
         )
 
     move.__action__ = ActionMetadata()  # type: ignore
+    move_to_position.__action__ = ActionMetadata()  # type: ignore
+    pick.__action__ = ActionMetadata(composite=True)  # type: ignore
+    place.__action__ = ActionMetadata(composite=True)  # type: ignore
